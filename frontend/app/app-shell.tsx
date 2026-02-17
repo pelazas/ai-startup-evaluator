@@ -43,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {shouldShowNav ? (
         <header className="top-nav">
           <div className="top-nav-inner">
-            <Link href="/evaluate" className="top-nav-brand">
+            <Link href="/" className="top-nav-brand">
               AI Startup Audit
             </Link>
             <div className="profile-menu-wrap" ref={menuRef}>

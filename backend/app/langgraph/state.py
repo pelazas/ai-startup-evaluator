@@ -16,10 +16,11 @@ class EvaluationState(TypedDict, total=False):
     retrieved_chunks: list[dict[str, Any]]
     dimension_scores: dict[str, int | None]
     dimension_analyses: dict[str, dict[str, Any]]
+    failed_dimensions: list[str]
+    parse_diagnostics: list[str]
     top_risks: list[str]
     low_confidence: bool
 
-    overall_score: int
-    verdict: str
+    overall_score: int | None
+    verdict: str | None
     evidence_sources: list[dict[str, Any]]
-

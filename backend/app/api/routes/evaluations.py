@@ -18,10 +18,20 @@ from app.services.evaluation_service import (
 from app.services.profile_service import get_profile_by_user_id
 
 router = APIRouter()
+DIMENSIONS = ("market", "technical", "distribution", "founder_fit", "timing")
 
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
+
+
+def _failed_dimensions_from_scores(scores: dict[str, int | None]) -> list[str]:
+    failed: list[str] = []
+    for dimension in DIMENSIONS:
+        value = scores.get(dimension)
+        if not isinstance(value, int):
+            failed.append(dimension)
+    return failed
 
 
 @router.post("")
@@ -72,6 +82,13 @@ def create_evaluation(
 
         if caught_error:
             persisted = persist_evaluation_result(db=db, evaluation=evaluation, state=final_state, error_message=caught_error)
+            dimension_scores = {
+                "market": persisted.market_score,
+                "technical": persisted.technical_score,
+                "distribution": persisted.distribution_score,
+                "founder_fit": persisted.founder_fit_score,
+                "timing": persisted.timing_score,
+            }
             yield _sse({"type": "error", "message": caught_error})
             yield _sse(
                 {
@@ -82,12 +99,25 @@ def create_evaluation(
                         "overall_score": persisted.overall_score,
                         "verdict": persisted.verdict,
                         "low_confidence": persisted.low_confidence,
+                        "dimension_scores": dimension_scores,
+                        "dimension_analyses": persisted.dimension_analyses,
+                        "top_risks": persisted.top_risks,
+                        "evidence_sources": persisted.evidence_sources,
+                        "failed_dimensions": _failed_dimensions_from_scores(dimension_scores),
+                        "parse_diagnostics": final_state.get("parse_diagnostics", []),
                     },
                 }
             )
             return
 
         persisted = persist_evaluation_result(db=db, evaluation=evaluation, state=final_state, error_message=None)
+        dimension_scores = {
+            "market": persisted.market_score,
+            "technical": persisted.technical_score,
+            "distribution": persisted.distribution_score,
+            "founder_fit": persisted.founder_fit_score,
+            "timing": persisted.timing_score,
+        }
         yield _sse(
             {
                 "type": "result",
@@ -97,16 +127,12 @@ def create_evaluation(
                     "overall_score": persisted.overall_score,
                     "verdict": persisted.verdict,
                     "low_confidence": persisted.low_confidence,
-                    "dimension_scores": {
-                        "market": persisted.market_score,
-                        "technical": persisted.technical_score,
-                        "distribution": persisted.distribution_score,
-                        "founder_fit": persisted.founder_fit_score,
-                        "timing": persisted.timing_score,
-                    },
+                    "dimension_scores": dimension_scores,
                     "dimension_analyses": persisted.dimension_analyses,
                     "top_risks": persisted.top_risks,
                     "evidence_sources": persisted.evidence_sources,
+                    "failed_dimensions": _failed_dimensions_from_scores(dimension_scores),
+                    "parse_diagnostics": final_state.get("parse_diagnostics", []),
                 },
             }
         )
@@ -116,4 +142,3 @@ def create_evaluation(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
-

@@ -23,6 +23,17 @@ COLLECTION_MODELS = {
 }
 
 
+def _retrieval_reason(source: str, meta: dict[str, Any]) -> str:
+    if source == "vector":
+        base = "Retrieved by semantic similarity to the submitted idea."
+    else:
+        base = "Retrieved by keyword overlap with the submitted idea."
+    section = meta.get("section")
+    if isinstance(section, str) and section.strip():
+        return f"{base} Section: {section.strip()}."
+    return base
+
+
 def _serialize_doc(collection: str, row: Any, source: str) -> dict[str, Any]:
     meta = row.doc_metadata if isinstance(row.doc_metadata, dict) else {}
     return {
@@ -32,6 +43,8 @@ def _serialize_doc(collection: str, row: Any, source: str) -> dict[str, Any]:
         "source": meta.get("source", source),
         "title": meta.get("title"),
         "metadata": meta,
+        "retrieval_method": source,
+        "retrieval_reason": _retrieval_reason(source, meta),
     }
 
 
@@ -97,4 +110,3 @@ def hybrid_search_all_collections(
             )
         )
     return all_chunks
-

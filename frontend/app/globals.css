@@ -101,6 +101,41 @@ p {
   margin: 8px 0;
 }
 
+.home-actions {
+  margin: 16px 0 20px;
+}
+
+.home-actions a {
+  display: inline-block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #111827;
+  color: #fff;
+  text-decoration: none;
+  border: 1px solid #111827;
+}
+
+.idea-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.idea-summary h2 {
+  margin: 0;
+}
+
+.idea-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px;
+  background: #fff;
+}
+
+.idea-card h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
 .auth-form {
   display: grid;
   gap: 10px;
@@ -289,6 +324,10 @@ textarea {
   background: #dc2626;
 }
 
+.badge-neutral {
+  background: #475569;
+}
+
 .score-box {
   font-weight: 700;
   color: #0f172a;
@@ -436,4 +475,51 @@ textarea {
   margin-top: 12px;
   display: grid;
   gap: 8px;
+}
+
+.sources-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.source-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.source-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.source-collection {
+  font-size: 12px;
+  color: #0f172a;
+  background: #e2e8f0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.source-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.source-meta {
+  margin-top: 6px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.source-snippet {
+  margin-top: 8px;
+  color: #334155;
+  font-size: 13px;
 }

@@ -18,8 +18,22 @@ export type EvaluationResultData = {
   low_confidence: boolean;
   dimension_scores?: Record<DimensionKey, number | null>;
   dimension_analyses?: Record<DimensionKey, { rationale?: string }>;
+  failed_dimensions?: DimensionKey[];
+  parse_diagnostics?: string[];
   top_risks?: string[];
-  evidence_sources?: Array<{ doc_name?: string; collection?: string; source?: string; chunk_id?: string }>;
+  evidence_sources?: Array<{
+    chunk_id?: string | null;
+    title?: string;
+    collection?: string;
+    source_name?: string | null;
+    source_url?: string | null;
+    snippet?: string | null;
+    retrieval_method?: string | null;
+    supporting_dimensions?: string[];
+    why_relevant?: string;
+    doc_name?: string;
+    source?: string;
+  }>;
 };
 
 export type EvaluationEvent =
@@ -159,4 +173,3 @@ export async function fetchEvaluationsList(): Promise<EvaluationResultData[] | n
     return null;
   }
 }
-

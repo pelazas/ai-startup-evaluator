@@ -1,5 +1,46 @@
 # Epic Brief — AI Startup Idea Evaluator (MVP)
 
+## Project Status Snapshot (February 17, 2026)
+
+### Done
+
+- Monorepo structure with `/frontend` and `/backend`.
+- Docker Compose + PostgreSQL 15 + pgvector, Alembic migrations, SQLAlchemy models.
+- Auth foundation (signup/login/logout) and authenticated app shell.
+- Profile CRUD (`POST /api/profiles`, `GET /api/profiles/me`, `PUT /api/profiles/me`).
+- Profile snapshot create/reuse logic integrated with evaluations.
+- Profile UX upgrade:
+  - Richer founder classification fields.
+  - Timezone is auto-inferred from Location (Open-Meteo geocoding), and read-only.
+  - App naming updated to **AI Startup Audit** in navbar/layout.
+- Evaluation backend flow implemented:
+  - 4-step graph (Intake -> Retrieval -> Critic -> Verdict).
+  - SSE progress streaming and final result event.
+  - Evaluation persistence with statuses (`pending`, `completed`, `partial`, `failed`).
+- Evaluation frontend flow implemented:
+  - `/evaluate` idea input + validation.
+  - Real-time progress UI.
+  - `/evaluations/[id]` results page with verdict badge, radar chart, risks, collapsible dimensions, sources, history modal.
+
+### Missing / Broken (Current Priority)
+
+- Result quality is inconsistent for some runs (all dimensions become unavailable).
+- Critic output parsing is currently too brittle when model shape deviates.
+- Partial result semantics lead to confusing outcomes (for example, NO-GO with `0/100` from unavailable scores).
+- Sources section is hard to read:
+  - duplicate entries,
+  - raw/opaque IDs,
+  - weak provenance visibility.
+- Observability is limited for debugging bad evaluations (insufficient per-node diagnostics exposed to UI).
+
+### Next Work (Ordered)
+
+1. Harden critic parsing and fallback behavior so each dimension degrades gracefully instead of collapsing to unavailable.
+2. Improve verdict calculation for partial runs (avoid misleading `0/100`; compute from available dimensions and communicate confidence clearly).
+3. Deduplicate and format evidence sources (clean labels, capped list, consistent ordering, readable metadata).
+4. Add evaluation diagnostics and better error payloads from backend to frontend for transparent failure reasons.
+5. Polish results UX for partial outputs (clear badges, actionable messages, and stronger confidence explanation).
+
 ## Problem / Opportunity
 
 Technical founders frequently receive **vague, optimistic validation** for startup ideas. That feedback is often ungrounded and fails to surface key risks early (market saturation, GTM feasibility, technical defensibility, founder constraints, and timing).

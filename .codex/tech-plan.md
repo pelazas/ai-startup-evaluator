@@ -1,5 +1,51 @@
 # Technical Architecture Plan
 
+## Delivery Status (February 17, 2026)
+
+### Completed
+
+- Monorepo scaffold and local environment baseline are in place.
+- Database layer delivered:
+  - PostgreSQL + pgvector,
+  - core tables (`users`, `profiles`, `profile_snapshots`, `evaluations`),
+  - vector collection tables and retrieval service.
+- Backend foundation delivered:
+  - FastAPI app bootstrapping and API routing,
+  - auth routes and JWT handling,
+  - profile APIs and snapshot dedup integration,
+  - evaluation APIs with SSE streaming.
+- Evaluation orchestration delivered:
+  - 4-node evaluation graph (Intake, Retrieval, Critic, Verdict),
+  - Cohere embedding wrapper,
+  - OpenRouter critic wrapper,
+  - DB persistence with status transitions.
+- Frontend foundation delivered:
+  - auth pages,
+  - profile setup/edit pages with reusable `ProfileForm`,
+  - `/evaluate` and `/evaluations/[id]` full flow,
+  - history modal and radar visualization.
+
+### Current Technical Debt / Defects
+
+- Critic node normalization is strict and can mark all dimensions unavailable when output shape drifts.
+- Verdict and overall score handling for partial runs is not robust enough (can produce misleading results).
+- Evidence source normalization/presentation is weak (duplicates and opaque identifiers).
+- Limited structured observability for evaluation failures (node-level diagnostics are not surfaced clearly).
+
+### Next Technical Plan (Immediate)
+
+1. Introduce stricter response schema enforcement at LLM boundary with resilient fallbacks per dimension.
+2. Refactor partial scoring policy:
+  - compute overall from available dimensions,
+  - track unavailable dimensions separately,
+  - keep confidence and status semantics explicit.
+3. Normalize evidence pipeline:
+  - dedupe by canonical source key,
+  - enrich source labels from metadata,
+  - cap and sort source output for readability.
+4. Extend SSE + persisted payloads with structured diagnostics for each failed/partial node.
+5. Update frontend rendering contract to consume new diagnostics and improved source model.
+
 ## Architectural Approach
 
 ### Overall System Design

@@ -1,5 +1,34 @@
 # Core User Flows
 
+## Implementation Status (February 17, 2026)
+
+### Flows Implemented
+
+- Authentication flow (signup/login/logout) is implemented.
+- Profile setup and profile edit flows are implemented.
+- Top navbar flow is implemented for logged-in users:
+  - app branding,
+  - profile entry point,
+  - logout path to sign-in.
+- Idea submission flow (`/evaluate`) is implemented with validation and SSE submission.
+- Real-time evaluation progress flow is implemented (Intake, Retrieval, Critic, Verdict).
+- Results flow (`/evaluations/[id]`) is implemented with:
+  - verdict + score,
+  - radar chart,
+  - top risks,
+  - collapsible dimension details,
+  - sources section,
+  - previous evaluations + view-all modal.
+
+### Flow Gaps To Fix Next
+
+- Partial-evaluation behavior currently produces poor UX when critic output is malformed:
+  - dimensions shown as unavailable,
+  - misleading overall score/verdict combinations.
+- Sources list flow needs readability and deduplication improvements.
+- Error/partial reasoning needs better transparency in the UI (why a dimension failed, what still succeeded).
+- Results flow should show stronger confidence and evidence-quality indicators.
+
 This document defines the complete user journey through the AI Startup Idea Evaluator, from first-time setup through evaluation and results viewing.
 
 ## Overview

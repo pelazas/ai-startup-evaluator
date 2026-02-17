@@ -31,16 +31,33 @@ def create_pending_evaluation(db: Session, user_id: str, payload: EvaluationCrea
     return evaluation
 
 
-def _mark_unavailable_dimensions(scores: dict[str, int | None], analyses: dict[str, dict[str, Any]]) -> tuple[dict[str, int | None], dict[str, dict[str, Any]], bool]:
-    partial = False
+def _normalize_dimension_outcomes(
+    scores: dict[str, int | None],
+    analyses: dict[str, dict[str, Any]],
+    failed_dimensions_hint: list[str] | None = None,
+) -> tuple[dict[str, int | None], dict[str, dict[str, Any]], list[str], int]:
     final_scores = dict(scores)
     final_analyses = dict(analyses)
+    failed_dimensions: list[str] = []
+
     for dimension in DIMENSIONS:
-        if dimension not in final_scores or final_scores[dimension] is None:
-            partial = True
+        score = final_scores.get(dimension)
+        if not isinstance(score, int):
             final_scores[dimension] = None
-            final_analyses[dimension] = {"rationale": "Unavailable - Evaluation Error"}
-    return final_scores, final_analyses, partial
+            existing_analysis = final_analyses.get(dimension, {})
+            rationale = existing_analysis.get("rationale") if isinstance(existing_analysis, dict) else None
+            final_analyses[dimension] = {
+                "rationale": rationale if isinstance(rationale, str) and rationale.strip() else "Unavailable - Evaluation Error"
+            }
+            failed_dimensions.append(dimension)
+
+    hinted_failed = {value for value in (failed_dimensions_hint or []) if value in DIMENSIONS}
+    for dimension in hinted_failed:
+        if dimension not in failed_dimensions:
+            failed_dimensions.append(dimension)
+
+    success_count = len(DIMENSIONS) - len(failed_dimensions)
+    return final_scores, final_analyses, failed_dimensions, success_count
 
 
 def persist_evaluation_result(
@@ -51,7 +68,11 @@ def persist_evaluation_result(
 ) -> Evaluation:
     dimension_scores = state.get("dimension_scores", {})
     dimension_analyses = state.get("dimension_analyses", {})
-    dimension_scores, dimension_analyses, partial = _mark_unavailable_dimensions(dimension_scores, dimension_analyses)
+    dimension_scores, dimension_analyses, _, success_count = _normalize_dimension_outcomes(
+        dimension_scores,
+        dimension_analyses,
+        state.get("failed_dimensions"),
+    )
 
     evaluation.market_score = dimension_scores["market"]
     evaluation.technical_score = dimension_scores["technical"]
@@ -62,14 +83,22 @@ def persist_evaluation_result(
     evaluation.top_risks = state.get("top_risks")
     evaluation.evidence_sources = state.get("evidence_sources")
     evaluation.low_confidence = bool(state.get("low_confidence", False))
-    evaluation.overall_score = state.get("overall_score")
-    evaluation.verdict = state.get("verdict")
     evaluation.error_message = error_message
 
-    has_any_score = any(isinstance(value, int) for value in dimension_scores.values())
-    if error_message and not has_any_score:
+    if success_count > 0:
+        available_scores = [value for value in dimension_scores.values() if isinstance(value, int)]
+        computed_overall = int(round(sum(available_scores) / len(available_scores))) if available_scores else None
+        stored_overall = state.get("overall_score")
+        evaluation.overall_score = stored_overall if isinstance(stored_overall, int) else computed_overall
+        stored_verdict = state.get("verdict")
+        evaluation.verdict = stored_verdict if isinstance(stored_verdict, str) else None
+    else:
+        evaluation.overall_score = None
+        evaluation.verdict = None
+
+    if success_count == 0:
         evaluation.status = "failed"
-    elif partial:
+    elif success_count < len(DIMENSIONS):
         evaluation.status = "partial"
     else:
         evaluation.status = "completed"
@@ -97,4 +126,3 @@ def run_evaluation_graph_stream(db: Session, initial_state: EvaluationState):
             }
 
     yield {"type": "state", "data": merged_state}
-
