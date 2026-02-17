@@ -1,898 +1,756 @@
-# Core User Flows
+# Technical Architecture Plan
 
-This document defines the complete user journey through the AI Startup Idea Evaluator, from first-time setup through evaluation and results viewing.
+## Architectural Approach
 
-## Overview
+### Overall System Design
 
-The application follows a **wizard-style flow** with step-by-step progression:
+**Monorepo Structure:**
 
-- **Authentication (Signup/Login)** → **Profile Setup** (first-time only / if incomplete) → **Idea Input** → **Evaluation** → **Results**
-- **Email + password authentication** (Signup, Login, Logout)
-  - No email verification in MVP
-- **Server-side persistence per user**
-  - Profile and evaluation history are stored server-side and available across devices
-- **Profile is editable anytime** via a dedicated Profile page
-  - Profile changes affect **future evaluations only**
-  - Past evaluations remain unchanged (each evaluation stores a profile snapshot)
-- Evaluation history is user-scoped and accessible from the Results screen
+- Single repository with `/frontend` and `/backend` folders
+- Shared configuration and coordinated versioning
+- Simplified development workflow for rapid MVP iteration
 
----
+**Technology Stack:**
 
-## Flow 0: Authentication (Signup / Login / Logout)
+**Frontend:**
 
-**Trigger:** User visits the application while logged out
+- **Next.js 14+** (React with SSR/SSG)
+- **TypeScript** for type safety
+- **Chart.js** for radar chart visualization
+- **Tailwind CSS** for styling
+- **Axios** for API communication
+- **EventSource API** for Server-Sent Events (progress updates)
 
-**Steps:**
+**Backend:**
 
-1. **Auth Gate (Login screen)**
-  - User sees Login form (email + password)
-  - Link: “Create account” (goes to Signup)
-2. **Signup**
-  - User enters email + password and submits
-  - Account is created and user is logged in immediately (no email verification)
-  - Post-signup routing:
-    - If no profile exists yet → go to Profile Setup
-    - If profile exists → go to Idea Input
-3. **Login**
-  - User enters email + password and submits
-  - Post-login routing:
-    - If profile exists → go to Idea Input
-    - If profile does not exist (edge case) → go to Profile Setup
-4. **Logout**
-  - User clicks “Logout” in header
-  - User is returned to the Login screen
+- **FastAPI** (Python 3.11+) - async-native web framework
+- **LangGraph + LangChain** - orchestration for the 4-node evaluation flow
+- **SQLAlchemy 2.0** - ORM for database access
+- **Alembic** - database migrations
+- **Pydantic** - data validation and settings management
+- **python-jose** - JWT token handling
+- **passlib + bcrypt** - password hashing
+- **WeasyPrint** - HTML-to-PDF generation
 
----
+**Data & AI:**
 
-## Flow 1: First-Time User Journey (Signup → Profile Setup)
+- **PostgreSQL 15+** with **pgvector extension** - relational data + vector search
+- **Cohere embed-english-v3.0** - text embeddings (API-based)
+- **OpenRouter** - LLM inference (cheap models: DeepSeek, Qwen, etc.)
 
-**Trigger:** User has just signed up (or logged in) and does not yet have a profile saved on their account
+### Key Architectural Patterns
 
-**Steps:**
+**1. Stateless Authentication (JWT)**
 
-1. **Landing on Profile Setup**
-  - After signup/login, system detects no profile on the user’s account
-  - Displays profile setup questionnaire with welcome message
-  - Shows progress indicator: "Step 1 of 3: Profile Setup"
-2. **Completing Profile Questionnaire**
-  - User fills out comprehensive profile form with fields:
-    - Technical skills (checkboxes: Python, JavaScript, ML/AI, DevOps, etc.)
-    - Domain expertise (checkboxes: SaaS, FinTech, HealthTech, etc.)
-    - Years of experience (dropdown: 0-2, 3-5, 6-10, 10+)
-    - Team size (radio: Solo, 2-3, 4-10, 10+)
-    - Budget range (dropdown: <$10k, $10k-$50k, $50k-$100k, $100k+)
-    - Network strength (slider: 1-10)
-    - Risk tolerance (radio: Low, Medium, High)
-    - Geographic location (text input)
-  - All fields are required
-  - "Continue to Evaluation" button enabled when form is complete
-3. **Saving Profile**
-  - User clicks "Continue to Evaluation"
-  - System saves profile to the user’s account (server-side)
-  - Transitions to Idea Input screen
-  - Shows progress indicator: "Step 2 of 3: Describe Your Idea"
-4. **Continues to Flow 2** (Idea Evaluation Flow)
+- Frontend stores JWT token in memory (not localStorage for security)
+- Token included in `Authorization: Bearer <token>` header on all API requests
+- Backend validates token signature on each request (no session storage)
+- Token expiry: 7 days (configurable)
+- No refresh tokens in MVP (user re-authenticates on expiry)
 
----
+**Trade-offs:**
 
-## Flow 2: Idea Evaluation Flow
+- ✅ Simple, scalable (no server-side session state)
+- ✅ Works well with Next.js SSR/client-side rendering
+- ❌ Token revocation requires additional infrastructure (deferred to post-MVP)
 
-**Trigger:** User has completed profile setup OR is a returning user clicking "New Evaluation"
+**2. Server-Sent Events for Real-Time Progress**
 
-**Steps:**
+- Evaluation endpoint (`POST /api/evaluations`) returns SSE stream
+- Backend emits progress events as LangGraph nodes complete:
+  - `{type: "progress", node: "intake", status: "completed"}`
+  - `{type: "progress", node: "retrieval", status: "in_progress"}`
+  - `{type: "result", data: {...}}`
+- Frontend uses EventSource API to consume stream and update UI
+- Connection closes automatically when evaluation completes or fails
 
-1. **Idea Input Screen**
-  - Header shows:
-    - "New Evaluation" link (returns to Step 2 and clears current input)
-    - "Profile" link (opens Profile page for editing)
-    - "Logout" link
-  - Main text area with placeholder: "Describe your startup idea in detail..."
-  - Optional structured fields below:
-    - "Target Customer" (text input)
-    - "Problem Statement" (text input)
-  - Category selectors (single-select):
-    - Type (radio): AI Infrastructure, Vertical SaaS, Developer Tool, Consumer AI
-    - Market (radio): B2B, B2C
-  - "Evaluate Idea" button at bottom
-  - Progress indicator: "Step 2 of 3: Describe Your Idea"
-2. **Submitting for Evaluation**
-  - User enters idea description (required)
-  - Optionally fills structured fields and selects categories
-  - Clicks "Evaluate Idea" button
-  - System validates that main text area is not empty
-  - Transitions to Evaluation Progress screen
-3. **Evaluation Progress Screen**
-  - Progress indicator: "Step 3 of 3: Evaluation"
-  - Shows 4-step progress visualization:
-    - ✓ Intake (completed, green)
-    - ⟳ Retrieval (in progress, blue spinner)
-    - ○ Strategic Critic (pending, gray)
-    - ○ Verdict Generation (pending, gray)
-  - Each step updates in real-time as backend progresses
-  - Estimated time: "This usually takes 30-60 seconds"
-  - No cancel button (evaluation runs to completion or failure)
-4. **Evaluation Completion**
-  - All steps show green checkmarks
-  - Brief success message: "Evaluation complete!"
-  - Auto-transitions to Results screen after 1 second
-5. **Error Handling (if evaluation fails)**
-  - Failed step shows red X icon
-  - Displays partial results with completed dimensions
-  - Failed dimensions marked as "Unavailable - Evaluation Error"
-  - Radar chart still renders all 5 axes; unavailable dimensions appear in gray with no numeric value
-  - Error message at top: "Some dimensions could not be evaluated. Results below are partial."
-  - "Try Again" button returns to Idea Input with form pre-filled
+**Trade-offs:**
 
----
+- ✅ Simple HTTP-based streaming (no WebSocket infrastructure)
+- ✅ Built-in browser support (EventSource API)
+- ✅ Works through most proxies/firewalls
+- ❌ Unidirectional (server → client only; sufficient for this use case)
 
-## Flow 3: Results Viewing Flow
+**3. Synchronous LangGraph Execution**
 
-**Trigger:** Evaluation completes successfully OR user clicks a previous evaluation from history
+- Evaluation runs synchronously in the API request handler
+- No background job queue (Celery/RQ) in MVP
+- Request timeout: 120 seconds (sufficient for 30-60s evaluations)
+- If evaluation fails mid-stream, SSE emits error event and closes
 
-**Steps:**
+**Trade-offs:**
 
-1. **Initial Results Display**
-  - Header shows:
-    - "New Evaluation" link
-    - "Profile" link
-    - "Logout" link
-  - Top section displays (always visible):
-    - **Verdict Badge**: Large GO/CONDITIONAL/NO-GO indicator with color coding
-      - GO: Green badge
-      - CONDITIONAL: Yellow badge
-      - NO-GO: Red badge
-    - **Overall Score**: Numeric score (0-100) next to verdict
-    - **Radar Chart**: Interactive 5-dimension visualization
-      - Dimensions: Market, Technical, Distribution, Founder Fit, Timing
-      - Hover shows tooltip with exact score and dimension name
-      - If a dimension is unavailable (partial results), its axis is shown in gray with no numeric value
-    - **Top 3 Critical Risks**: Bullet list of key concerns
-2. **Expandable Dimension Details**
-  - Below initial display, 5 collapsible sections (all collapsed by default):
-    - "Market Analysis" (score badge)
-    - "Technical Feasibility" (score badge)
-    - "Distribution Strategy" (score badge)
-    - "Founder Fit" (score badge)
-    - "Timing Assessment" (score badge)
-  - User clicks any section to expand
-  - Expanded section shows:
-    - Detailed scoring rationale (2-3 paragraphs)
-    - Specific strengths and weaknesses
-    - Evidence-based insights
-3. **Evidence Sources Section**
-  - Fixed section at bottom (always visible, not expandable)
-  - Title: "Sources Used"
-  - Lists documents retrieved during evaluation:
-    - Document name
-    - Collection name (founder_principles, ai_market_data, etc.)
-    - Simple bullet list format
-4. **Previous Evaluations Section**
-  - Below evidence sources
-  - Title: "Previous Evaluations"
-  - Shows up to 5 most recent evaluations as cards:
-    - Idea title (first 60 characters of description)
-    - Overall score (numeric)
-    - Date evaluated (relative: "2 days ago")
-    - Verdict badge (small)
-  - Click any card to load that evaluation's results
-  - "View All History" link if more than 5 evaluations exist
-    - Opens a modal overlay with a scrollable list of all evaluations
-    - Modal can be dismissed via an X button or clicking outside
-5. **Action Buttons**
-  - Primary action (top right): "Export to PDF" button
-    - Generates a polished PDF including:
-      - Verdict + overall score + radar chart image
-      - Top critical risks
-      - All 5 dimension rationales
-      - Sources used
-      - Original idea input (text + optional structured fields + selected categories)
-      - Short “Founder Profile Summary” (from the evaluation’s profile snapshot)
-    - Downloads immediately
-  - Secondary action (below results): "Evaluate Another Idea" button
-    - Returns to Idea Input screen (Step 2)
-    - Clears previous input
+- ✅ Simpler architecture (no job queue, no worker processes)
+- ✅ Immediate feedback (no polling for job status)
+- ❌ Ties up a request handler during evaluation (acceptable for MVP scale)
+- ❌ No retry mechanism (user must re-submit; acceptable for MVP)
+
+**4. Separate Tables Per Vector Collection**
+
+- 5 PostgreSQL tables: `founder_principles_docs`, `ai_market_data_docs`, `startup_examples_docs`, `technical_constraints_docs`, `personal_profile_docs`
+- Each table has: `id`, `content`, `embedding` (vector), `metadata` (JSONB), `created_at`
+- pgvector index on `embedding` column for fast similarity search
+- PostgreSQL full-text search (tsvector) on `content` for keyword search (BM25-like)
+
+**Trade-offs:**
+
+- ✅ Clean separation, easier to optimize per collection
+- ✅ Simpler queries (no collection filtering in WHERE clause)
+- ❌ More tables to manage (acceptable for 5 collections)
+
+**5. Profile Snapshots via Separate Table**
+
+- `profile_snapshots` table stores immutable profile versions
+- `evaluations` table has foreign key to `profile_snapshots`
+- When user edits profile, new snapshot is created only on next evaluation
+- Deduplication: if profile hasn't changed, reuse existing snapshot
+
+**Trade-offs:**
+
+- ✅ Normalized, avoids data duplication if profile rarely changes
+- ✅ Easy to query historical profile state
+- ❌ Requires join to fetch evaluation with profile (acceptable overhead)
+
+### Constraints & Assumptions
+
+**Technical Constraints:**
+
+- PostgreSQL 15+ required (pgvector extension)
+- Python 3.11+ required (for LangChain/LangGraph compatibility)
+- Node.js 18+ required (for Next.js 14)
+
+**Business Constraints:**
+
+- 1-2 week MVP timeline → prioritize simplicity over scalability
+- Seed data: 1-3 documents per collection (minimal corpus)
+- Single-user focus (no team collaboration)
+
+**Regulatory Constraints:**
+
+- No email verification → simpler signup, but higher spam risk (acceptable for MVP)
+- No GDPR compliance features in MVP (data export, deletion, etc.)
 
 ---
 
-## Flow 4: Returning User Flow
+## Data Model
 
-**Trigger:** User returns to the application and is logged out, or opens it from a new device
+### Database Schema (PostgreSQL + pgvector)
 
-**Steps:**
+**Core Tables:**
 
-1. **Login**
-  - User sees Login screen and signs in
-2. **Route to next step**
-  - If profile exists on the account:
-    - Skip profile setup
-    - Land on Idea Input screen
-    - Show welcome back message: "Welcome back! Ready to evaluate another idea?"
-  - If profile does not exist (edge case):
-    - Route to Profile Setup
-3. **Continues to Flow 2** (Idea Evaluation Flow from step 1)
+```sql
+-- Users (authentication)
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- User Profiles (editable)
+CREATE TABLE profiles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    technical_skills TEXT[], -- e.g., ['Python', 'JavaScript', 'ML/AI']
+    domain_expertise TEXT[], -- e.g., ['SaaS', 'FinTech']
+    years_experience VARCHAR(10), -- e.g., '3-5'
+    team_size VARCHAR(20), -- e.g., 'Solo', '2-3'
+    budget_range VARCHAR(20), -- e.g., '$10k-$50k'
+    network_strength INTEGER, -- 1-10
+    risk_tolerance VARCHAR(10), -- 'Low', 'Medium', 'High'
+    geographic_location VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Profile Snapshots (immutable)
+CREATE TABLE profile_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_data JSONB NOT NULL, -- Full profile as JSON
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, profile_data) -- Deduplication
+);
+
+-- Evaluations
+CREATE TABLE evaluations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_snapshot_id UUID NOT NULL REFERENCES profile_snapshots(id),
+    
+    -- Idea Input
+    idea_description TEXT NOT NULL,
+    target_customer TEXT,
+    problem_statement TEXT,
+    startup_type VARCHAR(50), -- 'AI Infrastructure', 'Vertical SaaS', etc.
+    market_type VARCHAR(10), -- 'B2B', 'B2C'
+    
+    -- Evaluation Results
+    overall_score INTEGER, -- 0-100
+    verdict VARCHAR(20), -- 'GO', 'CONDITIONAL', 'NO-GO'
+    
+    -- Dimension Scores
+    market_score INTEGER,
+    technical_score INTEGER,
+    distribution_score INTEGER,
+    founder_fit_score INTEGER,
+    timing_score INTEGER,
+    
+    -- Detailed Analysis
+    dimension_analyses JSONB, -- {market: {rationale: "...", strengths: [...], weaknesses: [...]}, ...}
+    top_risks TEXT[],
+    evidence_sources JSONB, -- [{doc_name: "...", collection: "...", chunk_id: "..."}, ...]
+    
+    -- Metadata
+    low_confidence BOOLEAN DEFAULT FALSE,
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'completed', 'failed', 'partial'
+    error_message TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_evaluations_user_created ON evaluations(user_id, created_at DESC);
+```
+
+**Vector Collection Tables (5 tables):**
+
+```sql
+-- Template for each collection (founder_principles_docs, ai_market_data_docs, etc.)
+CREATE TABLE {collection_name}_docs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    content TEXT NOT NULL,
+    embedding vector(1024), -- Cohere embed-english-v3.0 dimension
+    metadata JSONB, -- {source: "...", title: "...", section: "...", ...}
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- pgvector index for similarity search
+CREATE INDEX idx_{collection_name}_embedding ON {collection_name}_docs 
+USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Full-text search index for keyword search
+ALTER TABLE {collection_name}_docs ADD COLUMN content_tsvector tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
+CREATE INDEX idx_{collection_name}_fts ON {collection_name}_docs USING GIN(content_tsvector);
+```
+
+**Relationships:**
+
+- `users` 1:1 `profiles` (one profile per user)
+- `users` 1:N `profile_snapshots` (multiple snapshots over time)
+- `users` 1:N `evaluations` (multiple evaluations per user)
+- `profile_snapshots` 1:N `evaluations` (snapshot reused across evaluations if unchanged)
+
+**Indexes:**
+
+- Primary keys on all tables (UUID)
+- Unique constraint on `users.email`
+- Unique constraint on `profiles.user_id`
+- Composite unique on `profile_snapshots(user_id, profile_data)` for deduplication
+- Index on `evaluations(user_id, created_at DESC)` for history queries
+- pgvector indexes on all `*_docs.embedding` columns
+- Full-text search indexes on all `*_docs.content_tsvector` columns
 
 ---
 
-## Flow 5: View Previous Evaluation
+## Component Architecture
 
-**Trigger:** User clicks an evaluation card in "Previous Evaluations" section
-
-**Steps:**
-
-1. **Load Historical Evaluation**
-  - System retrieves the evaluation from the user’s server-side history
-  - Displays results in same format as Flow 3
-  - All sections (verdict, radar chart, dimensions, evidence) populated with historical data
-  - Timestamp shown at top: "Evaluated on [date]"
-2. **Limited Actions**
-  - "Export to PDF" still available
-  - "Evaluate Another Idea" returns to Idea Input
-  - No "Try Again" or edit functionality (evaluations are immutable)
-
----
-
-## Flow 6: Edit Profile
-
-**Trigger:** User clicks "Profile" in the header
-
-**Steps:**
-
-1. **Open Profile page**
-  - Show the profile form pre-filled with the current saved values
-  - Show a note: "Changes apply to future evaluations only. Past evaluations remain unchanged."
-2. **Edit and save**
-  - User updates any fields and clicks "Save changes"
-  - System saves the updated profile to the user’s account
-  - Show success feedback (toast or inline): "Profile updated"
-3. **Return to evaluation**
-  - User can return to "New Evaluation" or back to the prior page
-
----
-
-## Navigation Summary
+### System Overview
 
 ```mermaid
-flowchart TD
-    A[Visit App] -->|Logged out| L[Login]
-    L -->|Go to Signup| S[Signup]
-    S --> R{Profile exists?}
-    L --> R{Profile exists?}
-    R -->|No| P[Profile Setup]
-    R -->|Yes| C[Idea Input]
-    P --> C
-    C --> D[Evaluation Progress]
-    D -->|Success| E[Results Display]
-    D -->|Failure| F[Partial Results]
-    F --> C
-    E --> G[Export PDF]
-    E --> H[New Evaluation]
-    E --> I[View Previous]
-    E --> O[Logout]
-    H --> C
-    I --> E
-    O --> L
+sequenceDiagram
+    participant User
+    participant NextJS as Next.js Frontend
+    participant FastAPI as FastAPI Backend
+    participant LangGraph as LangGraph Engine
+    participant PG as PostgreSQL + pgvector
+    participant Cohere as Cohere API
+    participant OpenRouter as OpenRouter API
+
+    User->>NextJS: Login (email, password)
+    NextJS->>FastAPI: POST /api/auth/login
+    FastAPI->>PG: Verify credentials
+    PG-->>FastAPI: User data
+    FastAPI-->>NextJS: JWT token
+    NextJS->>NextJS: Store token in memory
+
+    User->>NextJS: Submit idea
+    NextJS->>FastAPI: POST /api/evaluations (SSE stream)
+    FastAPI->>PG: Create evaluation record (status: pending)
+    FastAPI->>LangGraph: Start evaluation flow
+    
+    LangGraph->>FastAPI: Emit progress (Intake)
+    FastAPI-->>NextJS: SSE: {type: "progress", node: "intake"}
+    
+    LangGraph->>Cohere: Embed query
+    Cohere-->>LangGraph: Query embedding
+    LangGraph->>PG: Hybrid search (vector + keyword) across 5 collections
+    PG-->>LangGraph: Retrieved chunks
+    LangGraph->>FastAPI: Emit progress (Retrieval)
+    FastAPI-->>NextJS: SSE: {type: "progress", node: "retrieval"}
+    
+    LangGraph->>OpenRouter: Strategic Critic prompt
+    OpenRouter-->>LangGraph: Dimension scores + rationales
+    LangGraph->>FastAPI: Emit progress (Critic)
+    FastAPI-->>NextJS: SSE: {type: "progress", node: "critic"}
+    
+    LangGraph->>LangGraph: Generate verdict
+    LangGraph->>PG: Update evaluation (status: completed)
+    LangGraph->>FastAPI: Emit result
+    FastAPI-->>NextJS: SSE: {type: "result", data: {...}}
+    
+    NextJS->>NextJS: Render results (radar chart, dimensions)
+    User->>NextJS: Export PDF
+    NextJS->>FastAPI: POST /api/evaluations/{id}/export (with chart base64)
+    FastAPI->>FastAPI: Generate HTML template
+    FastAPI->>FastAPI: WeasyPrint HTML → PDF
+    FastAPI-->>NextJS: PDF file
+    NextJS-->>User: Download PDF
+```
+
+### Frontend Architecture (Next.js)
+
+**Directory Structure:**
+
+```
+frontend/
+├── app/
+│   ├── (auth)/
+│   │   ├── login/page.tsx
+│   │   └── signup/page.tsx
+│   ├── (app)/
+│   │   ├── layout.tsx (authenticated layout with header)
+│   │   ├── profile/
+│   │   │   ├── setup/page.tsx (first-time profile)
+│   │   │   └── edit/page.tsx (edit profile)
+│   │   ├── evaluate/page.tsx (idea input)
+│   │   ├── evaluations/
+│   │   │   └── [id]/page.tsx (results view)
+│   │   └── page.tsx (redirect to /evaluate)
+│   └── layout.tsx (root layout)
+├── components/
+│   ├── auth/ (LoginForm, SignupForm)
+│   ├── profile/ (ProfileForm)
+│   ├── evaluation/ (IdeaInputForm, ProgressIndicator, ResultsDisplay, RadarChart)
+│   └── ui/ (Button, Input, Modal, etc.)
+├── lib/
+│   ├── api.ts (Axios instance with JWT interceptor)
+│   ├── auth.ts (JWT token management)
+│   └── types.ts (TypeScript interfaces)
+└── public/
+```
+
+**Key Components:**
+
+**1. Authentication Flow:**
+
+- `LoginForm` / `SignupForm` → POST to `/api/auth/login` or `/api/auth/signup`
+- Store JWT token in React state (not localStorage)
+- Axios interceptor adds `Authorization: Bearer <token>` to all requests
+- Redirect to `/profile/setup` if no profile, else `/evaluate`
+
+**2. Profile Management:**
+
+- `ProfileForm` (reusable for setup and edit)
+- POST to `/api/profiles` (create) or PUT `/api/profiles` (update)
+- Validation: all fields required for setup, optional for edit
+
+**3. Idea Evaluation:**
+
+- `IdeaInputForm` → POST to `/api/evaluations` (SSE endpoint)
+- `ProgressIndicator` listens to SSE stream, updates UI in real-time
+- On completion, redirect to `/evaluations/{id}`
+
+**4. Results Display:**
+
+- `RadarChart` (Chart.js) renders 5-dimension scores
+- Expandable dimension sections (client-side state)
+- History list at bottom (fetch from `/api/evaluations`)
+- Export button → POST to `/api/evaluations/{id}/export` with chart as base64
+
+**5. SSE Handling:**
+
+```typescript
+const eventSource = new EventSource('/api/evaluations', {
+  headers: { Authorization: `Bearer ${token}` }
+});
+
+eventSource.addEventListener('progress', (e) => {
+  const data = JSON.parse(e.data);
+  updateProgress(data.node, data.status);
+});
+
+eventSource.addEventListener('result', (e) => {
+  const result = JSON.parse(e.data);
+  redirectToResults(result.id);
+  eventSource.close();
+});
+
+eventSource.addEventListener('error', (e) => {
+  handleError(e);
+  eventSource.close();
+});
+```
+
+### Backend Architecture (FastAPI)
+
+**Directory Structure:**
+
+```
+backend/
+├── app/
+│   ├── main.py (FastAPI app initialization)
+│   ├── config.py (settings via Pydantic)
+│   ├── database.py (SQLAlchemy engine, session)
+│   ├── models/ (SQLAlchemy ORM models)
+│   │   ├── user.py
+│   │   ├── profile.py
+│   │   ├── evaluation.py
+│   │   └── documents.py (vector collection models)
+│   ├── schemas/ (Pydantic schemas for request/response)
+│   │   ├── auth.py
+│   │   ├── profile.py
+│   │   └── evaluation.py
+│   ├── api/
+│   │   ├── auth.py (login, signup, logout)
+│   │   ├── profiles.py (CRUD for profiles)
+│   │   ├── evaluations.py (create, list, get, export)
+│   │   └── deps.py (dependency injection: get_current_user, get_db)
+│   ├── services/
+│   │   ├── auth_service.py (JWT creation, password hashing)
+│   │   ├── profile_service.py (profile CRUD, snapshot management)
+│   │   ├── evaluation_service.py (orchestrates LangGraph)
+│   │   ├── retrieval_service.py (hybrid search across collections)
+│   │   └── pdf_service.py (WeasyPrint PDF generation)
+│   ├── langgraph/
+│   │   ├── graph.py (LangGraph flow definition)
+│   │   ├── nodes/
+│   │   │   ├── intake.py (extract structured idea)
+│   │   │   ├── retrieval.py (multi-collection hybrid search)
+│   │   │   ├── critic.py (strategic scoring)
+│   │   │   └── verdict.py (final verdict generation)
+│   │   └── state.py (LangGraph state schema)
+│   └── utils/
+│       ├── embeddings.py (Cohere API wrapper)
+│       └── llm.py (OpenRouter API wrapper)
+├── alembic/ (database migrations)
+└── tests/
+```
+
+**Key API Endpoints:**
+
+**Authentication:**
+
+- `POST /api/auth/signup` → Create user, return JWT
+- `POST /api/auth/login` → Verify credentials, return JWT
+- `POST /api/auth/logout` → (No-op in stateless JWT; client discards token)
+
+**Profiles:**
+
+- `POST /api/profiles` → Create profile (first-time setup)
+- `GET /api/profiles/me` → Get current user's profile
+- `PUT /api/profiles/me` → Update profile
+
+**Evaluations:**
+
+- `POST /api/evaluations` (SSE) → Start evaluation, stream progress
+- `GET /api/evaluations` → List user's evaluations (paginated)
+- `GET /api/evaluations/{id}` → Get single evaluation with full details
+- `POST /api/evaluations/{id}/export` → Generate PDF (accepts chart base64 in body)
+
+**Dependency Injection:**
+
+```python
+# app/api/deps.py
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+
+security = HTTPBearer()
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
+```
+
+### LangGraph Evaluation Flow
+
+**State Schema:**
+
+```python
+from typing import TypedDict, List, Dict
+
+class EvaluationState(TypedDict):
+    # Input
+    idea_description: str
+    target_customer: str | None
+    problem_statement: str | None
+    startup_type: str | None
+    market_type: str | None
+    profile_data: Dict
+    
+    # Intermediate
+    structured_idea: Dict  # Extracted by Intake node
+    retrieved_chunks: List[Dict]  # Retrieved by Retrieval node
+    dimension_scores: Dict[str, int]  # Scored by Critic node
+    dimension_analyses: Dict[str, Dict]  # Detailed rationales
+    
+    # Output
+    overall_score: int
+    verdict: str  # 'GO', 'CONDITIONAL', 'NO-GO'
+    top_risks: List[str]
+    evidence_sources: List[Dict]
+    low_confidence: bool
+```
+
+**Graph Definition:**
+
+```python
+from langgraph.graph import StateGraph
+
+# Define nodes
+graph = StateGraph(EvaluationState)
+
+graph.add_node("intake", intake_node)
+graph.add_node("retrieval", retrieval_node)
+graph.add_node("critic", critic_node)
+graph.add_node("verdict", verdict_node)
+
+# Define edges (linear flow for MVP)
+graph.set_entry_point("intake")
+graph.add_edge("intake", "retrieval")
+graph.add_edge("retrieval", "critic")
+graph.add_edge("critic", "verdict")
+graph.set_finish_point("verdict")
+
+evaluation_graph = graph.compile()
+```
+
+**Node Implementations:**
+
+**1. Intake Node:**
+
+- Input: Raw idea description + optional fields
+- Process: LLM call to extract structured representation (customer, problem, solution, technical core, classification)
+- Output: `structured_idea` dict
+- Emit SSE: `{type: "progress", node: "intake", status: "completed"}`
+
+**2. Retrieval Node:**
+
+- Input: `structured_idea` + `profile_data`
+- Process:
+  - Generate query embedding via Cohere
+  - Hybrid search across 5 collections:
+    - Vector search: `SELECT * FROM {collection}_docs ORDER BY embedding <=> query_embedding LIMIT 5`
+    - Keyword search: `SELECT * FROM {collection}_docs WHERE content_tsvector @@ to_tsquery('query') LIMIT 5`
+  - Merge and deduplicate results (top 10 per collection)
+- Output: `retrieved_chunks` (list of {content, source, collection})
+- Emit SSE: `{type: "progress", node: "retrieval", status: "completed"}`
+
+**3. Critic Node:**
+
+- Input: `structured_idea` + `retrieved_chunks` + `profile_data`
+- Process:
+  - LLM call (OpenRouter) with structured prompt:
+    - Evaluate across 5 dimensions (Market, Technical, Distribution, Founder Fit, Timing)
+    - Score each dimension 0-100
+    - Provide rationale, strengths, weaknesses per dimension
+    - Identify top 3 critical risks
+    - Flag low confidence if evidence is weak
+  - Parse LLM response into structured format
+- Output: `dimension_scores`, `dimension_analyses`, `top_risks`, `low_confidence`
+- Emit SSE: `{type: "progress", node: "critic", status: "completed"}`
+
+**4. Verdict Node:**
+
+- Input: `dimension_scores`
+- Process:
+  - Calculate `overall_score` = average of 5 dimension scores
+  - Determine `verdict`:
+    - GO if overall_score >= 70
+    - CONDITIONAL if 55 <= overall_score < 70
+    - NO-GO if overall_score < 55
+  - Extract `evidence_sources` from `retrieved_chunks`
+- Output: `overall_score`, `verdict`, `evidence_sources`
+- Emit SSE: `{type: "result", data: {evaluation_id, overall_score, verdict, ...}}`
+
+**SSE Streaming in FastAPI:**
+
+```python
+from fastapi.responses import StreamingResponse
+from sse_starlette.sse import EventSourceResponse
+
+@router.post("/evaluations")
+async def create_evaluation(
+    request: EvaluationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    async def event_generator():
+        # Create evaluation record
+        evaluation = create_evaluation_record(db, current_user.id, request)
+        
+        # Run LangGraph with callbacks
+        async for event in run_evaluation_graph(evaluation, db):
+            if event["type"] == "progress":
+                yield {"event": "progress", "data": json.dumps(event)}
+            elif event["type"] == "result":
+                yield {"event": "result", "data": json.dumps(event)}
+            elif event["type"] == "error":
+                yield {"event": "error", "data": json.dumps(event)}
+    
+    return EventSourceResponse(event_generator())
+```
+
+### PDF Export Service
+
+**Flow:**
+
+1. Frontend sends POST to `/api/evaluations/{id}/export` with:
+  - `chart_base64`: Base64-encoded PNG of radar chart (from Chart.js canvas)
+2. Backend fetches evaluation + profile snapshot from DB
+3. Generate HTML template with:
+  - Verdict badge, overall score
+  - Embedded radar chart image (base64)
+  - Top risks
+  - 5 dimension sections (scores + rationales)
+  - Evidence sources
+  - Original idea input
+  - Profile summary
+4. WeasyPrint converts HTML → PDF
+5. Return PDF as file download
+
+**HTML Template Structure:**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    /* PDF-friendly CSS (no flexbox/grid, use tables/floats) */
+    body { font-family: Arial, sans-serif; }
+    .verdict { font-size: 24px; font-weight: bold; }
+    .verdict.go { color: green; }
+    .verdict.conditional { color: orange; }
+    .verdict.no-go { color: red; }
+    .radar-chart { text-align: center; }
+    .dimension { page-break-inside: avoid; }
+  </style>
+</head>
+<body>
+  <h1>Startup Idea Evaluation Report</h1>
+  <div class="verdict {{ verdict_class }}">{{ verdict }}</div>
+  <p>Overall Score: {{ overall_score }}/100</p>
+  
+  <div class="radar-chart">
+    <img src="data:image/png;base64,{{ chart_base64 }}" />
+  </div>
+  
+  <h2>Top Critical Risks</h2>
+  <ul>
+    {% for risk in top_risks %}
+    <li>{{ risk }}</li>
+    {% endfor %}
+  </ul>
+  
+  <!-- Dimension sections, sources, idea input, profile summary -->
+</body>
+</html>
+```
+
+### Data Ingestion (Seed Documents)
+
+**Initial Setup Script:**
+
+- Python script to ingest 1-3 documents per collection
+- Semantic chunking via LangChain `RecursiveCharacterTextSplitter` with paragraph separators
+- Embed chunks via Cohere API
+- Insert into respective `*_docs` tables
+
+**Example:**
+
+```python
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=512,
+    chunk_overlap=50,
+    separators=["\n\n", "\n", ". ", " "]  # Paragraph/sentence boundaries
+)
+
+chunks = splitter.split_text(document_text)
+
+for chunk in chunks:
+    embedding = cohere_client.embed(texts=[chunk]).embeddings[0]
+    db.execute(
+        f"INSERT INTO {collection}_docs (content, embedding, metadata) VALUES (%s, %s, %s)",
+        (chunk, embedding, {"source": doc_name, "title": doc_title})
+    )
 ```
 
 ---
 
-## Verdict & Scoring Policy (MVP)
+## Integration Points
 
-- **Dimension weights:** Equal weights (20% each).
-- **Overall score:** Average of the 5 dimension scores.
-- **Verdict thresholds (moderate):**
-  - **GO**: overall score ≥ 70
-  - **CONDITIONAL**: overall score 55–69
-  - **NO-GO**: overall score < 55
-- **No “critical dimension” hard guardrail** in MVP (overall score solely determines verdict).
-- **Weak evidence behavior:** The system always produces a verdict, but when evidence coverage is weak it must:
-  - Add a prominent note near the verdict: “Low confidence due to limited evidence”
-  - Be more conservative in scoring and in its written rationale
+**Frontend ↔ Backend:**
 
----
+- REST API over HTTPS
+- JWT authentication on all protected endpoints
+- SSE for real-time evaluation progress
+- JSON request/response bodies
 
-## Key UI Wireframes
+**Backend ↔ PostgreSQL:**
 
-### Login Screen
+- SQLAlchemy ORM for CRUD operations
+- Raw SQL for pgvector similarity search (via SQLAlchemy `text()`)
+- Alembic for schema migrations
 
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 420px; margin: 80px auto; padding: 20px; }
-h1 { font-size: 22px; margin-bottom: 6px; }
-.sub { color: #666; font-size: 14px; margin-bottom: 22px; }
-.form-group { margin-bottom: 14px; }
-label { display: block; font-weight: bold; margin-bottom: 6px; }
-input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-button { width: 100%; background: #0070f3; color: #fff; padding: 10px; border: 0; border-radius: 4px; cursor: pointer; font-size: 16px; }
-.link { margin-top: 14px; font-size: 14px; }
-.link a { color: #0070f3; text-decoration: none; }
-</style>
-</head>
-<body>
-<h1>Log in</h1>
-<div class="sub">Access your profile and evaluations.</div>
-<form>
-  <div class="form-group">
-    <label for="email">Email</label>
-    <input id="email" type="email" data-element-id="login-email" placeholder="you@domain.com" />
-  </div>
-  <div class="form-group">
-    <label for="password">Password</label>
-    <input id="password" type="password" data-element-id="login-password" placeholder="••••••••" />
-  </div>
-  <button type="submit" data-element-id="login-submit">Login</button>
-</form>
-<div class="link">No account? <a href="#" data-element-id="goto-signup">Create one</a></div>
-</body>
-</html>
-```
+**Backend ↔ Cohere:**
 
-### Signup Screen
+- HTTP API for text embeddings
+- Batch embedding for document ingestion
+- Single embedding for query at evaluation time
 
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 420px; margin: 80px auto; padding: 20px; }
-h1 { font-size: 22px; margin-bottom: 6px; }
-.sub { color: #666; font-size: 14px; margin-bottom: 22px; }
-.form-group { margin-bottom: 14px; }
-label { display: block; font-weight: bold; margin-bottom: 6px; }
-input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
-button { width: 100%; background: #0070f3; color: #fff; padding: 10px; border: 0; border-radius: 4px; cursor: pointer; font-size: 16px; }
-.link { margin-top: 14px; font-size: 14px; }
-.link a { color: #0070f3; text-decoration: none; }
-</style>
-</head>
-<body>
-<h1>Create account</h1>
-<div class="sub">No email verification in MVP.</div>
-<form>
-  <div class="form-group">
-    <label for="email">Email</label>
-    <input id="email" type="email" data-element-id="signup-email" placeholder="you@domain.com" />
-  </div>
-  <div class="form-group">
-    <label for="password">Password</label>
-    <input id="password" type="password" data-element-id="signup-password" placeholder="Create a password" />
-  </div>
-  <button type="submit" data-element-id="signup-submit">Sign up</button>
-</form>
-<div class="link">Already have an account? <a href="#" data-element-id="goto-login">Log in</a></div>
-</body>
-</html>
-```
+**Backend ↔ OpenRouter:**
 
-### Profile Setup Screen
+- HTTP API for LLM inference
+- Structured prompts with JSON response format
+- Retry logic for transient failures
 
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; }
-h1 { font-size: 24px; margin-bottom: 10px; }
-.progress { color: #666; font-size: 14px; margin-bottom: 30px; }
-.form-group { margin-bottom: 20px; }
-label { display: block; font-weight: bold; margin-bottom: 5px; }
-input[type="text"], select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-.checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
-.checkbox-group label { font-weight: normal; }
-button { background: #0070f3; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-button:disabled { background: #ccc; cursor: not-allowed; }
-</style>
-</head>
-<body>
-<h1>Welcome to AI Startup Idea Evaluator</h1>
-<div class="progress">Step 1 of 3: Profile Setup</div>
+**Frontend ↔ PDF Export:**
 
-<form>
-  <div class="form-group">
-    <label>Technical Skills</label>
-    <div class="checkbox-group">
-      <label><input type="checkbox" data-element-id="skill-python"> Python</label>
-      <label><input type="checkbox" data-element-id="skill-js"> JavaScript</label>
-      <label><input type="checkbox" data-element-id="skill-ml"> ML/AI</label>
-      <label><input type="checkbox" data-element-id="skill-devops"> DevOps</label>
-    </div>
-  </div>
-
-  <div class="form-group">
-    <label>Domain Expertise</label>
-    <div class="checkbox-group">
-      <label><input type="checkbox" data-element-id="domain-saas"> SaaS</label>
-      <label><input type="checkbox" data-element-id="domain-fintech"> FinTech</label>
-      <label><input type="checkbox" data-element-id="domain-health"> HealthTech</label>
-    </div>
-  </div>
-
-  <div class="form-group">
-    <label for="experience">Years of Experience</label>
-    <select id="experience" data-element-id="experience-select">
-      <option value="">Select...</option>
-      <option value="0-2">0-2 years</option>
-      <option value="3-5">3-5 years</option>
-      <option value="6-10">6-10 years</option>
-      <option value="10+">10+ years</option>
-    </select>
-  </div>
-
-  <div class="form-group">
-    <label>Team Size</label>
-    <div>
-      <label><input type="radio" name="team" data-element-id="team-solo"> Solo</label>
-      <label><input type="radio" name="team" data-element-id="team-small"> 2-3 people</label>
-      <label><input type="radio" name="team" data-element-id="team-medium"> 4-10 people</label>
-    </div>
-  </div>
-
-  <div class="form-group">
-    <label for="budget">Budget Range</label>
-    <select id="budget" data-element-id="budget-select">
-      <option value="">Select...</option>
-      <option value="<10k">&lt;$10k</option>
-      <option value="10k-50k">$10k-$50k</option>
-      <option value="50k-100k">$50k-$100k</option>
-      <option value="100k+">$100k+</option>
-    </select>
-  </div>
-
-  <div class="form-group">
-    <label for="location">Geographic Location</label>
-    <input type="text" id="location" data-element-id="location-input" placeholder="e.g., San Francisco, CA">
-  </div>
-
-  <button type="submit" data-element-id="continue-btn">Continue to Evaluation</button>
-</form>
-</body>
-</html>
-```
-
-### Idea Input Screen
-
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-h1 { font-size: 24px; margin: 0; }
-.nav-link { color: #0070f3; text-decoration: none; }
-.progress { color: #666; font-size: 14px; margin-bottom: 30px; }
-.form-group { margin-bottom: 20px; }
-label { display: block; font-weight: bold; margin-bottom: 5px; }
-textarea { width: 100%; min-height: 150px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: Arial, sans-serif; }
-input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-.optional { color: #666; font-weight: normal; font-size: 14px; }
-.checkbox-group { display: flex; gap: 20px; margin-top: 10px; }
-.category-section { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
-button { background: #0070f3; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 20px; }
-</style>
-</head>
-<body>
-<header>
-  <h1>AI Startup Idea Evaluator</h1>
-  <div>
-    <a href="#" class="nav-link" data-element-id="new-eval-link">New Evaluation</a>
-    &nbsp;|&nbsp;
-    <a href="#" class="nav-link" data-element-id="profile-link">Profile</a>
-    &nbsp;|&nbsp;
-    <a href="#" class="nav-link" data-element-id="logout-link">Logout</a>
-  </div>
-</header>
-
-<div class="progress">Step 2 of 3: Describe Your Idea</div>
-
-<form>
-  <div class="form-group">
-    <label for="idea">Startup Idea Description *</label>
-    <textarea id="idea" data-element-id="idea-textarea" placeholder="Describe your startup idea in detail. Include the problem you're solving, your solution, target customers, and how you plan to build it..."></textarea>
-  </div>
-
-  <div class="form-group">
-    <label for="customer">Target Customer <span class="optional">(optional)</span></label>
-    <input type="text" id="customer" data-element-id="customer-input" placeholder="e.g., Enterprise SaaS companies, Solo developers, etc.">
-  </div>
-
-  <div class="form-group">
-    <label for="problem">Problem Statement <span class="optional">(optional)</span></label>
-    <input type="text" id="problem" data-element-id="problem-input" placeholder="e.g., Manual RFP responses take 40+ hours per proposal">
-  </div>
-
-  <div class="category-section">
-    <div class="form-group">
-      <label>Startup Type <span class="optional">(optional)</span></label>
-      <div class="checkbox-group">
-        <label><input type="radio" name="startup-type" data-element-id="type-infra"> AI Infrastructure</label>
-        <label><input type="radio" name="startup-type" data-element-id="type-saas"> Vertical SaaS</label>
-        <label><input type="radio" name="startup-type" data-element-id="type-devtool"> Developer Tool</label>
-        <label><input type="radio" name="startup-type" data-element-id="type-consumer"> Consumer AI</label>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label>Market <span class="optional">(optional)</span></label>
-      <div class="checkbox-group">
-        <label><input type="radio" name="market-type" data-element-id="market-b2b"> B2B</label>
-        <label><input type="radio" name="market-type" data-element-id="market-b2c"> B2C</label>
-      </div>
-    </div>
-  </div>
-
-  <button type="submit" data-element-id="evaluate-btn">Evaluate Idea</button>
-</form>
-</body>
-</html>
-```
-
-### Evaluation Progress Screen
-
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; }
-h1 { font-size: 24px; margin-bottom: 10px; }
-.progress { color: #666; font-size: 14px; margin-bottom: 50px; }
-.steps { text-align: left; max-width: 400px; margin: 0 auto; }
-.step { display: flex; align-items: center; padding: 15px; margin-bottom: 10px; border-radius: 4px; background: #f5f5f5; }
-.step.completed { background: #e6f7e6; }
-.step.active { background: #e6f0ff; }
-.step-icon { width: 30px; height: 30px; margin-right: 15px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
-.step.completed .step-icon { background: #28a745; color: white; }
-.step.active .step-icon { background: #0070f3; color: white; }
-.step.pending .step-icon { background: #ddd; color: #999; }
-.step-name { font-weight: bold; }
-.estimate { color: #666; font-size: 14px; margin-top: 30px; }
-</style>
-</head>
-<body>
-<h1>Evaluating Your Idea</h1>
-<div class="progress">Step 3 of 3: Evaluation</div>
-
-<div class="steps">
-  <div class="step completed" data-element-id="step-intake">
-    <div class="step-icon">✓</div>
-    <div class="step-name">Intake</div>
-  </div>
-  
-  <div class="step completed" data-element-id="step-retrieval">
-    <div class="step-icon">✓</div>
-    <div class="step-name">Retrieval</div>
-  </div>
-  
-  <div class="step active" data-element-id="step-critic">
-    <div class="step-icon">⟳</div>
-    <div class="step-name">Strategic Critic</div>
-  </div>
-  
-  <div class="step pending" data-element-id="step-verdict">
-    <div class="step-icon">○</div>
-    <div class="step-name">Verdict Generation</div>
-  </div>
-</div>
-
-<div class="estimate">This usually takes 30-60 seconds</div>
-</body>
-</html>
-```
-
-### Results Display Screen
-
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-h1 { font-size: 24px; margin: 0; }
-.nav-link { color: #0070f3; text-decoration: none; }
-.export-btn { background: #0070f3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-.verdict-section { background: #f9f9f9; padding: 30px; border-radius: 8px; margin-bottom: 30px; }
-.verdict-badge { display: inline-block; padding: 10px 20px; border-radius: 4px; font-size: 24px; font-weight: bold; margin-bottom: 20px; }
-.verdict-badge.go { background: #28a745; color: white; }
-.verdict-badge.conditional { background: #ffc107; color: black; }
-.verdict-badge.no-go { background: #dc3545; color: white; }
-.overall-score { font-size: 36px; font-weight: bold; margin-left: 20px; }
-.radar-chart { width: 400px; height: 400px; margin: 30px auto; background: #fff; border: 1px solid #ddd; display: flex; align-items: center; justify-content: center; color: #999; }
-.risks { margin-top: 20px; }
-.risks h3 { font-size: 18px; margin-bottom: 10px; }
-.risks ul { margin: 0; padding-left: 20px; }
-.dimension-section { border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px; }
-.dimension-header { padding: 15px; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-.dimension-header:hover { background: #eee; }
-.dimension-score { background: #0070f3; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; }
-.dimension-content { padding: 20px; display: none; border-top: 1px solid #ddd; }
-.dimension-content.expanded { display: block; }
-.sources { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; }
-.sources h3 { font-size: 18px; margin-bottom: 10px; }
-.source-item { padding: 8px 0; }
-.source-name { font-weight: bold; }
-.source-collection { color: #666; font-size: 14px; }
-.history { margin-top: 40px; padding-top: 20px; border-top: 2px solid #eee; }
-.history h3 { font-size: 18px; margin-bottom: 15px; }
-.history-card { border: 1px solid #ddd; padding: 15px; border-radius: 4px; margin-bottom: 10px; cursor: pointer; }
-.history-card:hover { background: #f9f9f9; }
-.history-title { font-weight: bold; margin-bottom: 5px; }
-.history-meta { color: #666; font-size: 14px; }
-.new-eval-btn { background: #28a745; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 30px; }
-</style>
-</head>
-<body>
-<header>
-  <h1>AI Startup Idea Evaluator</h1>
-  <div>
-    <button class="export-btn" data-element-id="export-pdf-btn">Export to PDF</button>
-    &nbsp;
-    <a href="#" class="nav-link" data-element-id="profile-link">Profile</a>
-    &nbsp;|&nbsp;
-    <a href="#" class="nav-link" data-element-id="logout-link">Logout</a>
-  </div>
-</header>
-
-<div class="verdict-section">
-  <div>
-    <span class="verdict-badge conditional" data-element-id="verdict-badge">CONDITIONAL GO</span>
-    <span class="overall-score" data-element-id="overall-score">68</span>
-  </div>
-  
-  <div class="radar-chart" data-element-id="radar-chart">
-    [Interactive Radar Chart]<br>
-    Hover for dimension scores
-  </div>
-  
-  <div class="risks">
-    <h3>Top Critical Risks</h3>
-    <ul>
-      <li>High market saturation in AI chatbot space</li>
-      <li>Distribution challenge: Enterprise sales cycle 6-12 months</li>
-      <li>Technical replicability risk: Low barrier to entry</li>
-    </ul>
-  </div>
-</div>
-
-<div class="dimension-section" data-element-id="market-section">
-  <div class="dimension-header">
-    <span><strong>Market Analysis</strong></span>
-    <span class="dimension-score">72</span>
-  </div>
-  <div class="dimension-content">
-    <p>Detailed market analysis rationale goes here...</p>
-  </div>
-</div>
-
-<div class="dimension-section" data-element-id="technical-section">
-  <div class="dimension-header">
-    <span><strong>Technical Feasibility</strong></span>
-    <span class="dimension-score">85</span>
-  </div>
-  <div class="dimension-content">
-    <p>Detailed technical analysis rationale goes here...</p>
-  </div>
-</div>
-
-<div class="dimension-section" data-element-id="distribution-section">
-  <div class="dimension-header">
-    <span><strong>Distribution Strategy</strong></span>
-    <span class="dimension-score">55</span>
-  </div>
-  <div class="dimension-content">
-    <p>Detailed distribution analysis rationale goes here...</p>
-  </div>
-</div>
-
-<div class="dimension-section" data-element-id="founder-section">
-  <div class="dimension-header">
-    <span><strong>Founder Fit</strong></span>
-    <span class="dimension-score">78</span>
-  </div>
-  <div class="dimension-content">
-    <p>Detailed founder fit analysis rationale goes here...</p>
-  </div>
-</div>
-
-<div class="dimension-section" data-element-id="timing-section">
-  <div class="dimension-header">
-    <span><strong>Timing Assessment</strong></span>
-    <span class="dimension-score">62</span>
-  </div>
-  <div class="dimension-content">
-    <p>Detailed timing analysis rationale goes here...</p>
-  </div>
-</div>
-
-<div class="sources">
-  <h3>Sources Used</h3>
-  <div class="source-item">
-    <div class="source-name">The Lean Startup - Chapter 3</div>
-    <div class="source-collection">founder_principles</div>
-  </div>
-  <div class="source-item">
-    <div class="source-name">Stanford AI Index 2024</div>
-    <div class="source-collection">ai_market_data</div>
-  </div>
-  <div class="source-item">
-    <div class="source-name">YC AI Startups - Enterprise Tools</div>
-    <div class="source-collection">startup_examples</div>
-  </div>
-</div>
-
-<div class="history">
-  <h3>Previous Evaluations</h3>
-  <div class="history-card" data-element-id="history-card-1">
-    <div class="history-title">AI agent that automates RFP responses for enterprises</div>
-    <div class="history-meta">Score: 72 • 2 days ago • CONDITIONAL GO</div>
-  </div>
-  <div class="history-card" data-element-id="history-card-2">
-    <div class="history-title">Vertical AI SaaS for legal contract analysis</div>
-    <div class="history-meta">Score: 81 • 5 days ago • GO</div>
-  </div>
-</div>
-
-<button class="new-eval-btn" data-element-id="new-eval-btn">Evaluate Another Idea</button>
-</body>
-</html>
-```
-
-### Profile Page (Edit Profile)
-
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; }
-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-.nav a { color: #0070f3; text-decoration: none; margin-left: 10px; }
-h1 { font-size: 22px; margin: 0; }
-.note { background: #f5f5f5; padding: 10px 12px; border-radius: 6px; color: #444; font-size: 14px; margin: 14px 0 20px; }
-.form-group { margin-bottom: 16px; }
-label { display: block; font-weight: bold; margin-bottom: 6px; }
-input[type="text"], select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-.checkbox-group { display: flex; flex-wrap: wrap; gap: 10px; }
-.checkbox-group label { font-weight: normal; }
-.actions { display: flex; gap: 10px; margin-top: 18px; }
-button { background: #0070f3; color: white; padding: 10px 16px; border: none; border-radius: 4px; cursor: pointer; }
-.secondary { background: #fff; color: #0070f3; border: 1px solid #0070f3; }
-</style>
-</head>
-<body>
-<header>
-  <h1>Your Profile</h1>
-  <div class="nav">
-    <a href="#" data-element-id="nav-new-eval">New Evaluation</a>
-    <a href="#" data-element-id="nav-logout">Logout</a>
-  </div>
-</header>
-<div class="note">
-  Changes apply to future evaluations only. Past evaluations remain unchanged (they keep a profile snapshot).
-</div>
-<form>
-  <div class="form-group">
-    <label>Technical Skills</label>
-    <div class="checkbox-group">
-      <label><input type="checkbox" data-element-id="skill-python"> Python</label>
-      <label><input type="checkbox" data-element-id="skill-js"> JavaScript</label>
-      <label><input type="checkbox" data-element-id="skill-ml"> ML/AI</label>
-      <label><input type="checkbox" data-element-id="skill-devops"> DevOps</label>
-    </div>
-  </div>
-  <div class="form-group">
-    <label for="location">Geographic Location</label>
-    <input type="text" id="location" data-element-id="profile-location" placeholder="e.g., Berlin, Germany" />
-  </div>
-  <div class="actions">
-    <button type="submit" data-element-id="profile-save">Save changes</button>
-    <button type="button" class="secondary" data-element-id="profile-cancel">Cancel</button>
-  </div>
-</form>
-</body>
-</html>
-```
-
-### History Modal (View All History)
-
-```wireframe
-<!DOCTYPE html>
-<html>
-<head>
-<style>
-body { font-family: Arial, sans-serif; margin: 0; }
-.backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; padding: 20px; }
-.modal { background: #fff; width: 700px; max-width: 100%; border-radius: 8px; overflow: hidden; }
-.modal-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #eee; }
-.modal-title { font-weight: bold; }
-.close-btn { border: 1px solid #ccc; background: #fff; padding: 6px 10px; border-radius: 4px; cursor: pointer; }
-.modal-body { max-height: 60vh; overflow: auto; padding: 10px 20px 20px; }
-.row { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-top: 10px; cursor: pointer; }
-.row:hover { background: #f9f9f9; }
-.row-title { font-weight: bold; margin-bottom: 6px; }
-.row-meta { color: #666; font-size: 14px; }
-</style>
-</head>
-<body>
-<div class="backdrop">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">All Evaluations</div>
-      <button class="close-btn" data-element-id="history-modal-close">X</button>
-    </div>
-    <div class="modal-body">
-      <div class="row" data-element-id="history-row-1">
-        <div class="row-title">AI agent that automates RFP responses for enterprises</div>
-        <div class="row-meta">Score: 72 • 2 days ago</div>
-      </div>
-      <div class="row" data-element-id="history-row-2">
-        <div class="row-title">Vertical AI SaaS for legal contract analysis</div>
-        <div class="row-meta">Score: 81 • 5 days ago</div>
-      </div>
-      <div class="row" data-element-id="history-row-3">
-        <div class="row-title">Developer tool that monitors LLM hallucinations in production</div>
-        <div class="row-meta">Score: 64 • 2 weeks ago</div>
-      </div>
-    </div>
-  </div>
-</div>
-</body>
-</html>
-```
+- Frontend captures Chart.js canvas as base64 PNG
+- Sends to backend via POST request
+- Backend generates PDF and returns as file download
 
 ---
 
-## Information Hierarchy
+## Deployment Considerations (Post-MVP)
 
-**Primary (Always Visible):**
+**Development:**
 
-- Verdict decision (GO/CONDITIONAL/NO-GO)
-- Overall score
-- Radar chart visualization
-- Top 3 critical risks
+- Docker Compose for local development (PostgreSQL + pgvector, backend, frontend)
+- Hot reload for both frontend and backend
 
-**Secondary (Expandable):**
+**Production (Future):**
 
-- Detailed dimension analysis (5 sections)
-- Full risk breakdown within each dimension
+- Frontend: Vercel or Netlify (Next.js SSR/SSG)
+- Backend: Railway, Render, or AWS ECS (containerized FastAPI)
+- Database: Managed PostgreSQL (Supabase, Neon, or AWS RDS) with pgvector extension
+- Secrets: Environment variables for API keys (Cohere, OpenRouter, JWT secret)
 
-**Tertiary (Fixed but Lower Priority):**
-
-- Evidence sources
-- Previous evaluations
-
-**Actions:**
-
-- Primary: Export to PDF (top right, always visible)
-- Secondary: New Evaluation (header link + bottom button)
-- Tertiary: View previous evaluations (click history cards)
-
----
-
-## State Communication
-
-**Loading States:**
-
-- Profile setup: Form validation (button disabled until complete)
-- Evaluation: 4-step progress indicator with real-time updates
-- Results: Instant display (no loading after evaluation completes)
-
-**Success States:**
-
-- Profile saved: Immediate transition to Idea Input
-- Evaluation complete: Green checkmarks + auto-transition to results
-- PDF export: Browser download initiated
-
-**Error States:**
-
-- Evaluation failure: Partial results with red X on failed steps
-- Missing required fields: Inline validation messages
-- Network errors: Error banner with retry option
-
-**Empty States:**
-
-- No previous evaluations: "No previous evaluations yet" message
-- First-time user: Welcome message on profile setup
+&nbsp;
