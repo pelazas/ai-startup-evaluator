@@ -20,10 +20,12 @@ def _profile_payload(profile: Profile) -> dict:
         "weekly_hours_available": profile.weekly_hours_available,
         "budget_range": profile.budget_range,
         "hiring_ability": profile.hiring_ability,
-        "technical_skills": profile.technical_skills,
-        "ai_ml_maturity": profile.ai_ml_maturity,
+        "cloud_deployment_level": profile.cloud_deployment_level,
+        "ai_coding_agents_level": profile.ai_coding_agents_level,
+        "backend_engineering_level": profile.backend_engineering_level,
+        "product_ux_level": profile.product_ux_level,
+        "data_ml_engineering_level": profile.data_ml_engineering_level,
         "shipping_velocity": profile.shipping_velocity,
-        "data_access_level": profile.data_access_level,
         "domain_expertise_level": profile.domain_expertise_level,
         "distribution_channels": profile.distribution_channels,
         "audience_access": profile.audience_access,
@@ -40,7 +42,6 @@ def _profile_payload(profile: Profile) -> dict:
         "geo_legal_constraints_notes": profile.geo_legal_constraints_notes,
         "confidence_style": profile.confidence_style,
         "priority_dimensions": profile.priority_dimensions,
-        "hard_no_go_conditions": profile.hard_no_go_conditions,
     }
 
 

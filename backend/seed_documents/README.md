@@ -1,6 +1,8 @@
 # Seed Documents for Vector Collections
 
-Add markdown documents under these folders:
+This folder contains ingestion-ready markdown documents and optional metadata sidecar files.
+
+Collections:
 
 - `founder_principles_docs/`
 - `ai_market_data_docs/`
@@ -8,29 +10,41 @@ Add markdown documents under these folders:
 - `technical_constraints_docs/`
 - `personal_profile_docs/`
 
-Document format:
+Recommended workflow:
 
-- Use `# Title` on the first line.
-- Use `## Section Heading` for major sections.
-- Write normal paragraphs under each section.
+1. Put mixed raw files (`.pdf`, `.txt`, `.md`) into `backend/raw_documents/`.
+2. Run preprocessing to extract, normalize, classify, and route into this seed folder.
+3. Review low-confidence docs in `backend/processed_documents/review_queue/`.
+4. Run ingestion to chunk, embed, and upsert into vector tables.
 
-Ingestion script behavior:
+Preprocess command:
 
-- Reads all `*.md` files in each folder.
-- Splits by markdown sections and semantic chunk boundaries.
-- Stores metadata JSONB with `source`, `title`, and `section`.
+```bash
+cd backend
+PYTHONPATH=. python scripts/preprocess_documents.py
+```
 
-Run ingestion:
+Ingestion command:
 
 ```bash
 cd backend
 PYTHONPATH=. python scripts/ingest_seed_collections.py --verify
 ```
 
-Use `--append` to keep existing rows and insert additional chunks.
+Useful ingestion flags:
 
-OpenRouter is the default provider and uses `OPEN_ROUTER_API_KEY`.
-Optional provider/model flags:
+- `--append`: keep existing rows
+- `--resume`: resume from checkpoint in `backend/.ingestion_state/checkpoints/`
+- `--dry-run`: compute chunks without DB writes
+- `--force-reindex`: ignore chunk hash dedupe
+
+Provider config:
+
+- Default provider: OpenRouter
+- Required key for default: `OPEN_ROUTER_API_KEY`
+- Default embedding model: `cohere/embed-english-v3.0` (1024 dimensions)
+
+Optional provider/model overrides:
 
 ```bash
 PYTHONPATH=. python scripts/ingest_seed_collections.py --embedding-provider openrouter --embedding-model cohere/embed-english-v3.0 --verify

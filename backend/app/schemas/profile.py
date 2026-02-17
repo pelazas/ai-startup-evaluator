@@ -15,10 +15,12 @@ class ProfileBase(BaseModel):
     weekly_hours_available: int = Field(ge=1, le=80)
     budget_range: str = Field(min_length=1, max_length=20)
     hiring_ability: str = Field(min_length=1, max_length=16)
-    technical_skills: list[str] = Field(min_length=1)
-    ai_ml_maturity: str = Field(min_length=1, max_length=20)
+    cloud_deployment_level: str = Field(min_length=1, max_length=16)
+    ai_coding_agents_level: str = Field(min_length=1, max_length=16)
+    backend_engineering_level: str = Field(min_length=1, max_length=16)
+    product_ux_level: str = Field(min_length=1, max_length=16)
+    data_ml_engineering_level: str = Field(min_length=1, max_length=16)
     shipping_velocity: str = Field(min_length=1, max_length=16)
-    data_access_level: str = Field(min_length=1, max_length=48)
     domain_expertise_level: int = Field(ge=1, le=5)
     distribution_channels: list[str] = Field(min_length=1)
     audience_access: str = Field(min_length=1, max_length=24)
@@ -35,9 +37,8 @@ class ProfileBase(BaseModel):
     geo_legal_constraints_notes: str | None = None
     confidence_style: str = Field(min_length=1, max_length=16)
     priority_dimensions: list[str] = Field(min_length=2, max_length=2)
-    hard_no_go_conditions: str | None = None
 
-    @field_validator("industry_focus", "technical_skills", "distribution_channels", "priority_dimensions")
+    @field_validator("industry_focus", "distribution_channels", "priority_dimensions")
     @classmethod
     def normalize_string_lists(cls, value: list[str]) -> list[str]:
         normalized = [item.strip() for item in value if item.strip()]
@@ -56,9 +57,12 @@ class ProfileBase(BaseModel):
         "team_size",
         "budget_range",
         "hiring_ability",
-        "ai_ml_maturity",
+        "cloud_deployment_level",
+        "ai_coding_agents_level",
+        "backend_engineering_level",
+        "product_ux_level",
+        "data_ml_engineering_level",
         "shipping_velocity",
-        "data_access_level",
         "audience_access",
         "sales_experience",
         "risk_tolerance",
@@ -82,7 +86,7 @@ class ProfileBase(BaseModel):
         normalized = value.strip()
         return normalized or None
 
-    @field_validator("regulatory_constraints_notes", "ip_constraints_notes", "geo_legal_constraints_notes", "hard_no_go_conditions")
+    @field_validator("regulatory_constraints_notes", "ip_constraints_notes", "geo_legal_constraints_notes")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:
