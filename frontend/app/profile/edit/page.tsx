@@ -25,16 +25,7 @@ export default function ProfileEditPage() {
       try {
         const profile = await getMyProfile();
         if (mounted) {
-          setInitialValue({
-            technical_skills: profile.technical_skills,
-            domain_expertise: profile.domain_expertise,
-            years_experience: profile.years_experience,
-            team_size: profile.team_size,
-            budget_range: profile.budget_range,
-            network_strength: profile.network_strength,
-            risk_tolerance: profile.risk_tolerance,
-            geographic_location: profile.geographic_location,
-          });
+          setInitialValue(profile);
         }
       } catch {
         if (mounted) {
