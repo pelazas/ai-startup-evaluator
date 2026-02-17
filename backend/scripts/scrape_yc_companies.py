@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--index", default=DEFAULT_INDEX, help="Algolia index name.")
     parser.add_argument("--hits-per-page", type=int, default=20, help="Algolia hits per page.")
-    parser.add_argument("--max-pages", type=int, default=None, help="Optional page cap for testing.")
+    parser.add_argument("--max-pages", type=int, default=None, help="Optional window cap for testing.")
     parser.add_argument(
         "--sort",
         choices=["desc", "asc"],
@@ -60,6 +60,7 @@ def fetch_page(
     index_name: str,
     page: int,
     hits_per_page: int,
+    launched_before: int | None = None,
 ) -> dict:
     url = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
     headers = {
@@ -68,6 +69,8 @@ def fetch_page(
         "Content-Type": "application/json",
     }
     params = f"query=&hitsPerPage={hits_per_page}&page={page}"
+    if launched_before is not None:
+        params += f"&numericFilters=launched_at<{launched_before}"
     response = session.post(url, headers=headers, json={"params": params}, timeout=30)
     response.raise_for_status()
     return response.json()
@@ -148,31 +151,51 @@ def main() -> None:
         app_id = algolia_opts["app"]
         api_key = algolia_opts["key"]
 
-        first_page = fetch_page(
-            session,
-            app_id=app_id,
-            api_key=api_key,
-            index_name=args.index,
-            page=0,
-            hits_per_page=args.hits_per_page,
-        )
-        nb_pages = int(first_page["nbPages"])
-        records = [normalize_hit(hit) for hit in first_page.get("hits", [])]
+        records: list[dict] = []
+        launched_before: int | None = None
+        windows_processed = 0
+        max_windows = args.max_pages if args.max_pages is not None else None
 
-        max_page = nb_pages
-        if args.max_pages is not None:
-            max_page = min(nb_pages, args.max_pages)
-
-        for page in range(1, max_page):
-            payload = fetch_page(
+        while True:
+            first_page = fetch_page(
                 session,
                 app_id=app_id,
                 api_key=api_key,
                 index_name=args.index,
-                page=page,
+                page=0,
                 hits_per_page=args.hits_per_page,
+                launched_before=launched_before,
             )
-            records.extend(normalize_hit(hit) for hit in payload.get("hits", []))
+            hits = first_page.get("hits", [])
+            if not hits:
+                break
+
+            nb_pages = int(first_page["nbPages"])
+            window_records = [normalize_hit(hit) for hit in hits]
+            for page in range(1, nb_pages):
+                payload = fetch_page(
+                    session,
+                    app_id=app_id,
+                    api_key=api_key,
+                    index_name=args.index,
+                    page=page,
+                    hits_per_page=args.hits_per_page,
+                    launched_before=launched_before,
+                )
+                window_records.extend(normalize_hit(hit) for hit in payload.get("hits", []))
+                if args.sleep_seconds > 0:
+                    time.sleep(args.sleep_seconds)
+
+            records.extend(window_records)
+            windows_processed += 1
+
+            launch_values = [r["launched_at"] for r in window_records if isinstance(r["launched_at"], (int, float))]
+            if not launch_values:
+                break
+            launched_before = int(min(launch_values)) - 1
+
+            if max_windows is not None and windows_processed >= max_windows:
+                break
             if args.sleep_seconds > 0:
                 time.sleep(args.sleep_seconds)
 

@@ -1,4 +1,4 @@
-# CRAG AI Startup Evaluator
+# AI startup audit
 
 Initial MVP project scaffold with monorepo structure:
 
@@ -48,6 +48,51 @@ Health endpoint:
 ```bash
 curl http://localhost:8000/health
 ```
+
+## Document Pipeline (Raw -> Processed -> Seed -> Vector DB)
+
+This is the end-to-end flow for document ingestion:
+
+1. Put source files in:
+
+- `backend/raw_documents/`
+- Supported formats: `.pdf`, `.txt`, `.md`
+
+2. Preprocess raw documents into normalized + classified outputs:
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python scripts/preprocess_documents.py --rules-only --review-threshold 0.30
+```
+
+Outputs:
+
+- Processed docs: `backend/processed_documents/<collection>/<doc_id>/`
+- Review queue (low confidence): `backend/processed_documents/review_queue/`
+- Ingestion-ready seed docs: `backend/seed_documents/<collection>/`
+
+3. Ingest seed docs into pgvector collections:
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python scripts/ingest_seed_collections.py --embedding-model openai/text-embedding-3-small --verify
+```
+
+Notes:
+
+- `--verify` runs vector and keyword search checks after ingestion.
+- Use `--append` to keep existing rows.
+- Use `--resume` to continue from checkpoints in `backend/.ingestion_state/checkpoints/`.
+- Current vector columns are 1024-dim; if model dims differ, ingestion auto-adapts by truncate/pad.
+
+4. Optional: Scrape YC companies as raw input:
+
+```bash
+cd backend
+PYTHONPATH=. .venv/bin/python scripts/scrape_yc_companies.py
+```
+
+This writes a raw markdown export to `backend/raw_documents/`.
 
 ## Frontend
 

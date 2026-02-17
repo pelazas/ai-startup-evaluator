@@ -222,6 +222,15 @@ def _with_retry(label: str, fn):
     raise RuntimeError(f"{label} failed after {MAX_RETRIES} attempts: {last_exc}")
 
 
+def _adapt_embedding_dimension(vector: list[float], expected_dim: int = EMBEDDING_DIMENSION) -> list[float]:
+    size = len(vector)
+    if size == expected_dim:
+        return vector
+    if size > expected_dim:
+        return vector[:expected_dim]
+    return vector + [0.0] * (expected_dim - size)
+
+
 def embed_chunks_batched(provider: EmbeddingProvider, chunks: list[SectionChunk], batch_size: int) -> list[list[float]]:
     if not chunks:
         return []
@@ -234,11 +243,7 @@ def embed_chunks_batched(provider: EmbeddingProvider, chunks: list[SectionChunk]
         )
         if not batch_embeddings:
             raise RuntimeError("Embedding provider returned empty batch")
-        if len(batch_embeddings[0]) != EMBEDDING_DIMENSION:
-            raise RuntimeError(
-                f"Unexpected embedding dimension: {len(batch_embeddings[0])}. Expected {EMBEDDING_DIMENSION}."
-            )
-        embeddings.extend(batch_embeddings)
+        embeddings.extend(_adapt_embedding_dimension(vector) for vector in batch_embeddings)
     return embeddings
 
 
@@ -368,7 +373,7 @@ def ingest_collection(provider: EmbeddingProvider | None, collection_name: str, 
 
 def run_vector_query(collection_name: str, query: str, provider: EmbeddingProvider) -> None:
     model = COLLECTION_MODEL_MAP[collection_name]
-    query_embedding = _with_retry("embed query", lambda: provider.embed_query(query))
+    query_embedding = _adapt_embedding_dimension(_with_retry("embed query", lambda: provider.embed_query(query)))
     with SessionLocal() as session:
         rows = session.execute(
             select(
@@ -440,6 +445,13 @@ def main() -> None:
     else:
         provider = build_embedding_provider(args)
         print(f"[config] provider={args.embedding_provider} model={provider.model_name}")
+        probe = _with_retry("embed probe", lambda: provider.embed_query("dimension probe"))
+        probe_dim = len(probe)
+        if probe_dim != EMBEDDING_DIMENSION:
+            print(
+                f"[warn] embedding dimension {probe_dim} does not match DB dimension {EMBEDDING_DIMENSION}; "
+                "auto-adapting by truncate/pad."
+            )
     total_new_chunks = 0
     for collection_name in COLLECTION_MODEL_MAP:
         total_new_chunks += ingest_collection(provider, collection_name, args)

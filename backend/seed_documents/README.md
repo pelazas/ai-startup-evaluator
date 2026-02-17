@@ -42,11 +42,11 @@ Provider config:
 
 - Default provider: OpenRouter
 - Required key for default: `OPEN_ROUTER_API_KEY`
-- Default embedding model: `cohere/embed-english-v3.0` (1024 dimensions)
+- Recommended embedding model: `openai/text-embedding-3-small`
 
 Optional provider/model overrides:
 
 ```bash
-PYTHONPATH=. python scripts/ingest_seed_collections.py --embedding-provider openrouter --embedding-model cohere/embed-english-v3.0 --verify
+PYTHONPATH=. python scripts/ingest_seed_collections.py --embedding-provider openrouter --embedding-model openai/text-embedding-3-small --verify
 PYTHONPATH=. python scripts/ingest_seed_collections.py --embedding-provider cohere --embedding-model embed-english-v3.0 --verify
 ```

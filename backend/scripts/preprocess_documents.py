@@ -27,6 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed-root", default=str(SEED_ROOT), help="Output seed folder root.")
     parser.add_argument("--processed-root", default=str(PROCESSED_ROOT), help="Output processed folder root.")
     parser.add_argument("--review-threshold", type=float, default=0.65, help="Confidence threshold for auto-routing.")
+    parser.add_argument("--llm-threshold", type=float, default=0.55, help="Only use LLM fallback below this confidence.")
+    parser.add_argument("--rules-only", action="store_true", help="Disable OpenRouter classification fallback.")
     parser.add_argument("--dry-run", action="store_true", help="Run classification without writing files.")
     return parser.parse_args()
 
@@ -76,7 +78,11 @@ def main() -> None:
                 print(f"[skip] {extracted.source}: empty after normalization")
                 continue
 
-            classification = classify_document(normalized)
+            classification = classify_document(
+                normalized,
+                llm_threshold=args.llm_threshold,
+                allow_llm=not args.rules_only,
+            )
             content_hash = compute_content_hash(normalized.normalized_text)
             doc_id = make_document_id(extracted.source, content_hash)
             metadata = build_metadata(

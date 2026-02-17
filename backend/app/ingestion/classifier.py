@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 
 import requests
@@ -101,24 +102,35 @@ def _openrouter_classification(title: str, text: str) -> ClassificationResult | 
         f"Content Preview:\n{text[:6000]}"
     )
 
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are a strict JSON classifier."},
-                {"role": "user", "content": prompt},
-            ],
-            "response_format": {"type": "json_object"},
-            "temperature": 0,
-        },
-        timeout=60,
-    )
-    response.raise_for_status()
+    response = None
+    for attempt in range(1, 4):
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "You are a strict JSON classifier."},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0,
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            break
+        except requests.exceptions.RequestException:
+            if attempt == 3:
+                raise
+            time.sleep(0.5 * attempt)
+
+    if response is None:
+        return None
     content = response.json()["choices"][0]["message"]["content"]
     payload = json.loads(content)
     collection = payload.get("collection")
@@ -134,19 +146,29 @@ def classify_document(
     normalized_doc: NormalizedDocument,
     *,
     llm_threshold: float = 0.55,
+    allow_llm: bool = True,
 ) -> ClassificationResult:
     preview_text = normalized_doc.normalized_text
     rule_result = _rule_based_classification(normalized_doc.title, preview_text)
+    if not allow_llm:
+        return rule_result
     if rule_result.confidence >= llm_threshold and rule_result.collection is not None:
         return rule_result
 
     try:
         llm_result = _openrouter_classification(normalized_doc.title, preview_text)
-    except Exception as exc:
+    except requests.exceptions.RequestException:
         return ClassificationResult(
             collection=rule_result.collection,
             confidence=rule_result.confidence,
-            reason=f"{rule_result.reason}; llm fallback failed: {exc}",
+            reason=f"{rule_result.reason}; llm unavailable",
+            method=rule_result.method,
+        )
+    except Exception:
+        return ClassificationResult(
+            collection=rule_result.collection,
+            confidence=rule_result.confidence,
+            reason=f"{rule_result.reason}; llm unavailable",
             method=rule_result.method,
         )
 
