@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -14,14 +14,40 @@ class Profile(Base):
     user_id: Mapped[str] = mapped_column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
-    technical_skills: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
-    domain_expertise: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
-    years_experience: Mapped[str] = mapped_column(String(10), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    role_title: Mapped[str] = mapped_column(String(40), nullable=False)
+    linkedin_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    location_city_country: Mapped[str] = mapped_column(String(255), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False)
+    current_stage: Mapped[str] = mapped_column(String(24), nullable=False)
+    industry_focus: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    business_model: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_market: Mapped[str] = mapped_column(String(32), nullable=False)
     team_size: Mapped[str] = mapped_column(String(20), nullable=False)
+    weekly_hours_available: Mapped[int] = mapped_column(Integer, nullable=False)
     budget_range: Mapped[str] = mapped_column(String(20), nullable=False)
-    network_strength: Mapped[int] = mapped_column(Integer, nullable=False)
+    hiring_ability: Mapped[str] = mapped_column(String(16), nullable=False)
+    technical_skills: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    ai_ml_maturity: Mapped[str] = mapped_column(String(20), nullable=False)
+    shipping_velocity: Mapped[str] = mapped_column(String(16), nullable=False)
+    data_access_level: Mapped[str] = mapped_column(String(48), nullable=False)
+    domain_expertise_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    distribution_channels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    audience_access: Mapped[str] = mapped_column(String(24), nullable=False)
+    sales_experience: Mapped[str] = mapped_column(String(16), nullable=False)
     risk_tolerance: Mapped[str] = mapped_column(String(10), nullable=False)
-    geographic_location: Mapped[str] = mapped_column(String(255), nullable=False)
+    preferred_time_to_revenue: Mapped[str] = mapped_column(String(12), nullable=False)
+    motivation_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    commitment_horizon: Mapped[str] = mapped_column(String(12), nullable=False)
+    regulatory_constraints: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    regulatory_constraints_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_constraints: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    ip_constraints_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    geo_legal_constraints: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    geo_legal_constraints_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence_style: Mapped[str] = mapped_column(String(16), nullable=False)
+    priority_dimensions: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    hard_no_go_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now(), onupdate=func.now()

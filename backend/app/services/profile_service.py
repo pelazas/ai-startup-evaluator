@@ -7,14 +7,40 @@ from app.models.profile import Profile, ProfileSnapshot
 
 def _profile_payload(profile: Profile) -> dict:
     return {
-        "technical_skills": profile.technical_skills,
-        "domain_expertise": profile.domain_expertise,
-        "years_experience": profile.years_experience,
+        "full_name": profile.full_name,
+        "role_title": profile.role_title,
+        "linkedin_url": profile.linkedin_url,
+        "location_city_country": profile.location_city_country,
+        "timezone": profile.timezone,
+        "current_stage": profile.current_stage,
+        "industry_focus": profile.industry_focus,
+        "business_model": profile.business_model,
+        "target_market": profile.target_market,
         "team_size": profile.team_size,
+        "weekly_hours_available": profile.weekly_hours_available,
         "budget_range": profile.budget_range,
-        "network_strength": profile.network_strength,
+        "hiring_ability": profile.hiring_ability,
+        "technical_skills": profile.technical_skills,
+        "ai_ml_maturity": profile.ai_ml_maturity,
+        "shipping_velocity": profile.shipping_velocity,
+        "data_access_level": profile.data_access_level,
+        "domain_expertise_level": profile.domain_expertise_level,
+        "distribution_channels": profile.distribution_channels,
+        "audience_access": profile.audience_access,
+        "sales_experience": profile.sales_experience,
         "risk_tolerance": profile.risk_tolerance,
-        "geographic_location": profile.geographic_location,
+        "preferred_time_to_revenue": profile.preferred_time_to_revenue,
+        "motivation_type": profile.motivation_type,
+        "commitment_horizon": profile.commitment_horizon,
+        "regulatory_constraints": profile.regulatory_constraints,
+        "regulatory_constraints_notes": profile.regulatory_constraints_notes,
+        "ip_constraints": profile.ip_constraints,
+        "ip_constraints_notes": profile.ip_constraints_notes,
+        "geo_legal_constraints": profile.geo_legal_constraints,
+        "geo_legal_constraints_notes": profile.geo_legal_constraints_notes,
+        "confidence_style": profile.confidence_style,
+        "priority_dimensions": profile.priority_dimensions,
+        "hard_no_go_conditions": profile.hard_no_go_conditions,
     }
 
 
@@ -71,4 +97,3 @@ def get_or_create_profile_snapshot(db: Session, user_id: str) -> ProfileSnapshot
 
     db.refresh(snapshot)
     return snapshot
-
