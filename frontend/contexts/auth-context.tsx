@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { apiClient, setAuthTokenGetter } from "../lib/api";
+import { setRuntimeToken } from "../lib/evaluations";
 
 type User = {
   id: string;
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setAuthTokenGetter(() => token);
+    setRuntimeToken(token);
   }, [token]);
 
   async function signup(email: string, password: string): Promise<void> {

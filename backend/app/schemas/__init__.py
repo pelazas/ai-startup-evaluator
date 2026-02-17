@@ -1,4 +1,5 @@
 from app.schemas.auth import AuthRequest, AuthResponse, UserPublic
+from app.schemas.evaluation import EvaluationCreateRequest
 from app.schemas.profile import ProfileCreate, ProfileResponse, ProfileUpdate
 
 __all__ = [
@@ -8,4 +9,5 @@ __all__ = [
     "ProfileCreate",
     "ProfileUpdate",
     "ProfileResponse",
+    "EvaluationCreateRequest",
 ]
