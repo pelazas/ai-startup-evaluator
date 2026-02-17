@@ -1,10 +1,21 @@
-export default function HomePage() {
-  return (
-    <main>
-      <h1>CRAG AI Startup Evaluator</h1>
-      <p>Frontend initialized successfully.</p>
-      <p>This page will be replaced by the authentication and evaluation wizard flows.</p>
-    </main>
-  );
-}
+"use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { useAuth } from "../contexts/auth-context";
+
+export default function HomePage() {
+  const router = useRouter();
+  const { isAuthenticated, user } = useAuth();
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login");
+      return;
+    }
+    router.replace(user?.has_profile ? "/evaluate" : "/profile/setup");
+  }, [isAuthenticated, router, user?.has_profile]);
+
+  return null;
+}

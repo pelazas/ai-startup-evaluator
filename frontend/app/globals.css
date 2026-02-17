@@ -30,3 +30,89 @@ p {
   margin: 8px 0;
 }
 
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+
+button {
+  width: fit-content;
+  padding: 10px 16px;
+  border: 1px solid #111827;
+  border-radius: 8px;
+  background: #111827;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error-text {
+  color: #b91c1c;
+}
+
+.profile-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.pill-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.checkbox-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 6px 10px;
+}
+
+.checkbox-pill input {
+  width: auto;
+  margin: 0;
+}
+
+.inline-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.inline-options input {
+  width: auto;
+  margin-right: 4px;
+}
+
+.form-note {
+  color: #475569;
+}
+
+.form-error {
+  color: #b91c1c;
+}
