@@ -331,7 +331,7 @@ button:disabled {
   gap: 6px;
   font-size: 13px;
   color: #475569;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .keyword-select {
@@ -341,27 +341,41 @@ button:disabled {
 .keyword-trends-chart-wrap {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 14px;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 10px 12px;
+  background: #ffffff;
   position: relative;
+  max-width: 760px;
+  margin: 0;
+}
+
+.keyword-trends-block {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.keyword-source-note {
+  margin-top: 6px;
+  margin-bottom: 0;
 }
 
 .keyword-trends-legend {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 6px;
+  margin-bottom: 6px;
   flex-wrap: wrap;
 }
 
 .keyword-trends-chip {
-  display: grid;
-  gap: 1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid #dbe3ee;
   border-radius: 10px;
   background: #ffffff;
-  padding: 6px 8px;
-  min-width: 106px;
+  padding: 6px 10px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .keyword-trends-chip-primary {
@@ -375,27 +389,42 @@ button:disabled {
   border-radius: 999px;
   background: #2563eb;
   display: inline-block;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .keyword-trends-chip strong {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
   color: #0f172a;
+  white-space: nowrap;
 }
 
 .keyword-trends-chip span {
-  font-size: 11px;
+  font-size: 13px;
   color: #64748b;
+  white-space: nowrap;
 }
 
 .keyword-trends-chip .positive-growth {
   color: #059669;
 }
 
+.keyword-trends-chip .negative-growth {
+  color: #dc2626;
+}
+
 .keyword-trends-chart {
   width: 100%;
   height: auto;
+}
+
+.trend-grid-line {
+  stroke: #dbe3ee;
+  stroke-width: 1;
+}
+
+.trend-grid-line-vertical {
+  stroke-dasharray: 2 4;
 }
 
 .trend-axis {
@@ -409,8 +438,10 @@ button:disabled {
   stroke-width: 2.4;
 }
 
-.trend-area {
-  fill: rgba(37, 99, 235, 0.16);
+.trend-x-tick {
+  fill: #64748b;
+  font-size: 9px;
+  text-anchor: middle;
 }
 
 .trend-point {
@@ -810,6 +841,15 @@ textarea {
   border-top: 1px solid #e5e7eb;
   padding: 10px 12px;
   color: #334155;
+}
+
+.dimension-improvement {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid #2563eb;
+  background: #f8fafc;
+  border-radius: 6px;
+  color: #0f172a;
 }
 
 .resource-count {

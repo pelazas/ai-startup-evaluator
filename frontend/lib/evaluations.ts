@@ -33,7 +33,7 @@ export type EvaluationResultData = {
   verdict: "GO" | "CONDITIONAL" | "NO-GO" | null;
   low_confidence: boolean;
   dimension_scores?: Record<DimensionKey, number | null>;
-  dimension_analyses?: Record<DimensionKey, { rationale?: string }>;
+  dimension_analyses?: Record<DimensionKey, { rationale?: string; improvement?: string }>;
   failed_dimensions?: DimensionKey[];
   parse_diagnostics?: string[];
   top_risks?: string[];
@@ -98,6 +98,9 @@ export type KeywordTrendSeries = {
 };
 
 export type EvaluationKeywordTrends = {
+  status?: "ok" | "no_keywords" | "no_trends_data" | "provider_error";
+  error_code?: string;
+  details?: string;
   keywords: string[];
   selected_keyword?: string | null;
   series: KeywordTrendSeries[];
@@ -106,6 +109,14 @@ export type EvaluationKeywordTrends = {
   source?: string;
   metric?: string;
   generated_at?: string;
+  diagnostics?: {
+    extracted_keywords_count?: number;
+    provider_success_count?: number;
+    provider_fail_count?: number;
+    series_count?: number;
+    point_count?: number;
+    manual_override_used?: boolean;
+  };
   error?: string;
 };
 
@@ -265,9 +276,17 @@ export async function fetchEvaluationsFiltered(params: {
   }
 }
 
-export async function fetchEvaluationKeywordTrends(evaluationId: string): Promise<EvaluationKeywordTrends | null> {
+export async function fetchEvaluationKeywordTrends(
+  evaluationId: string,
+  options?: { keyword_override?: string }
+): Promise<EvaluationKeywordTrends | null> {
   try {
-    const data = await apiRequest<EvaluationKeywordTrends>(`/api/evaluations/${evaluationId}/keyword-trends`, {
+    const query = new URLSearchParams();
+    if (options?.keyword_override?.trim()) {
+      query.set("keyword_override", options.keyword_override.trim());
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const data = await apiRequest<EvaluationKeywordTrends>(`/api/evaluations/${evaluationId}/keyword-trends${suffix}`, {
       method: "GET",
     });
     return data;

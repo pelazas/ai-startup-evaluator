@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     web_search_timeout_seconds: int = 8
     web_search_max_results: int = 8
+    web_search_retry_attempts: int = 2
+    web_search_search_depth: str = "basic"
+    web_search_cache_ttl_seconds: int = 43200
+    web_search_query_limit_per_eval: int = 2
+    web_search_max_chunks_per_eval: int = 8
 
 
 settings = Settings()

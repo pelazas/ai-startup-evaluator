@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from app.utils.llm import evaluate_with_critic
+from app.utils.llm import evaluate_with_critic, generate_dimension_narratives
 
 from ..state import EvaluationState
 
@@ -392,6 +392,26 @@ def critic_node(state: EvaluationState) -> EvaluationState:
             state.get("evaluation_id"),
             ", ".join(parse_diagnostics),
         )
+
+    rewritten = generate_dimension_narratives(
+        structured_idea=state.get("structured_idea", {}),
+        profile_data=profile_data,
+        dimension_scores=dimension_scores,
+        dimension_analyses=dimension_analyses,
+        top_risks=top_risks,
+        dimension_evidence_map=dimension_evidence_map,
+    )
+    if isinstance(rewritten, dict):
+        for dimension, payload in rewritten.items():
+            if dimension not in DIMENSIONS or not isinstance(payload, dict):
+                continue
+            existing = dimension_analyses.get(dimension, {})
+            next_payload = dict(existing) if isinstance(existing, dict) else {}
+            if isinstance(payload.get("rationale"), str) and payload["rationale"].strip():
+                next_payload["rationale"] = payload["rationale"].strip()
+            if isinstance(payload.get("improvement"), str) and payload["improvement"].strip():
+                next_payload["improvement"] = payload["improvement"].strip()
+            dimension_analyses[dimension] = next_payload
 
     return {
         "dimension_scores": dimension_scores,

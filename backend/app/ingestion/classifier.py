@@ -91,7 +91,7 @@ def _openrouter_classification(title: str, text: str) -> ClassificationResult | 
     if not api_key:
         return None
 
-    model = os.getenv("OPENROUTER_CLASSIFIER_MODEL", "openai/gpt-4o-mini")
+    model = os.getenv("OPENROUTER_CLASSIFIER_MODEL", "qwen/qwen3.5-397b-a17b")
     prompt = (
         "Classify this document into exactly one collection.\n"
         "Allowed collections: founder_principles_docs, ai_market_data_docs, startup_examples_docs, "

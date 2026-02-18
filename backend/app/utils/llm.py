@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
@@ -9,7 +10,7 @@ import requests
 from app.config import settings
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3.5-397b-a17b")
 KNOWN_IDEA_TAGS = [
     "b2b",
     "b2c",
@@ -296,6 +297,77 @@ def generate_explanatory_summaries(
     }
 
 
+def generate_dimension_narratives(
+    *,
+    structured_idea: dict[str, Any],
+    profile_data: dict[str, Any],
+    dimension_scores: dict[str, int | None],
+    dimension_analyses: dict[str, dict[str, Any]],
+    top_risks: list[str] | None,
+    dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
+) -> dict[str, dict[str, str]] | None:
+    def _compact_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        content = str(chunk.get("content") or "").replace("\n", " ").strip()
+        return {
+            "collection": chunk.get("collection"),
+            "title": chunk.get("title") or metadata.get("title"),
+            "source": chunk.get("source") or metadata.get("source"),
+            "source_url": metadata.get("source_url"),
+            "content_excerpt": content[:240],
+        }
+
+    compact_evidence_map = {
+        key: [_compact_chunk(chunk) for chunk in value[:5] if isinstance(chunk, dict)]
+        for key, value in (dimension_evidence_map or {}).items()
+        if isinstance(value, list)
+    }
+
+    system_prompt = (
+        "You rewrite startup evaluation dimension output for founders.\n"
+        "Return strict JSON with keys: market, technical, distribution, founder_fit, timing.\n"
+        "Each dimension value must be an object with keys:\n"
+        "- rationale: one concise paragraph (2-4 sentences), specific, no document IDs, no raw source dumps.\n"
+        "- improvement: 1-2 sentences with concrete changes to improve this dimension.\n"
+        "Rules:\n"
+        "- Keep the original score meaning; do not change scores.\n"
+        "- Be skeptical and actionable.\n"
+        "- Mention competition and differentiation where relevant.\n"
+        "- For market, include niche focus + positioning advice when useful.\n"
+    )
+    user_prompt = json.dumps(
+        {
+            "structured_idea": structured_idea,
+            "profile_data": profile_data,
+            "dimension_scores": dimension_scores,
+            "dimension_analyses": dimension_analyses,
+            "top_risks": top_risks or [],
+            "dimension_evidence_map": compact_evidence_map,
+        }
+    )
+    parsed = call_openrouter_json(system_prompt, user_prompt)
+    if not isinstance(parsed, dict):
+        return None
+
+    result: dict[str, dict[str, str]] = {}
+    for dimension in ("market", "technical", "distribution", "founder_fit", "timing"):
+        payload = parsed.get(dimension)
+        if not isinstance(payload, dict):
+            continue
+        rationale = payload.get("rationale")
+        improvement = payload.get("improvement")
+        if not isinstance(rationale, str) or not rationale.strip():
+            continue
+        if not isinstance(improvement, str) or not improvement.strip():
+            continue
+        result[dimension] = {
+            "rationale": " ".join(rationale.strip().split()),
+            "improvement": " ".join(improvement.strip().split()),
+        }
+
+    return result or None
+
+
 def _heuristic_tags(text: str, allow_default: bool = True) -> tuple[list[str], str | None]:
     lowered = text.lower()
     tags: list[str] = []
@@ -420,6 +492,62 @@ def generate_search_keywords(
     startup_type: str | None,
     market_type: str | None,
 ) -> list[str]:
+    stopwords = {
+        "for",
+        "with",
+        "and",
+        "the",
+        "from",
+        "into",
+        "using",
+        "based",
+        "automated",
+        "automation",
+        "solution",
+        "software",
+        "platform",
+        "tool",
+        "app",
+        "services",
+    }
+
+    def clean_keyword(value: str) -> str | None:
+        cleaned = " ".join(value.strip().lower().split())
+        if not cleaned:
+            return None
+        # Remove date-like fragments and non-commercial tails.
+        cleaned = re.sub(r"\b(19|20)\d{2}\b", "", cleaned)
+        cleaned = re.sub(r"\b(q[1-4]|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b", "", cleaned)
+        cleaned = re.sub(r"[^a-z0-9\s-]", " ", cleaned)
+        cleaned = " ".join(cleaned.split()).strip()
+        tokens = [token for token in cleaned.split() if token and token not in stopwords]
+        if len(tokens) > 2:
+            tokens = tokens[:2]
+        cleaned = " ".join(tokens).strip()
+        if len(cleaned) < 4:
+            return None
+        return cleaned
+
+    def fallback_templates() -> list[str]:
+        market = (market_type or "").strip().lower()
+        segment = (target_customer or "").strip().lower()
+        problem = (problem_statement or "").strip().lower()
+        startup = (startup_type or "").strip().lower()
+        templates = [
+            f"{segment} {problem} solution" if segment and problem else "",
+            f"{segment} {startup} app" if segment and startup else "",
+            f"{market} {startup} software" if market and startup else "",
+            f"{segment} pricing" if segment else "",
+            f"{startup} alternatives" if startup else "",
+            f"{problem} software" if problem else "",
+        ]
+        cleaned_templates: list[str] = []
+        for template in templates:
+            keyword = clean_keyword(template)
+            if keyword and keyword not in cleaned_templates:
+                cleaned_templates.append(keyword)
+        return cleaned_templates[:4]
+
     payload = {
         "idea_description": idea_description,
         "target_customer": target_customer,
@@ -431,10 +559,11 @@ def generate_search_keywords(
         "You generate high-intent Google search keywords for startup demand validation.\n"
         "Return strict JSON with key: keywords (array of strings).\n"
         "Rules:\n"
-        "- Return 3 to 5 concise keywords.\n"
-        "- Use phrases users actually search for.\n"
-        "- Avoid generic terms like startup, ai, platform unless qualified.\n"
-        "- Prefer customer problem and use-case language."
+        "- Return 3 to 4 concise keywords.\n"
+        "- Each keyword must be 1-2 words and commercially-intent focused.\n"
+        "- Use phrases users actually search for when evaluating products.\n"
+        "- Avoid generic terms and remove dates/years/time ranges.\n"
+        "- Prefer product category + core use-case terms."
     )
     parsed = call_openrouter_json(system_prompt, json.dumps(payload))
     if isinstance(parsed, dict):
@@ -444,41 +573,25 @@ def generate_search_keywords(
             for item in raw_keywords:
                 if not isinstance(item, str):
                     continue
-                value = " ".join(item.strip().lower().split())
-                if len(value) < 4:
-                    continue
-                if value not in cleaned:
+                value = clean_keyword(item)
+                if value and value not in cleaned:
                     cleaned.append(value)
             if cleaned:
-                return cleaned[:5]
+                return cleaned[:4]
 
-    fallback_parts = [
-        startup_type or "",
-        market_type or "",
-        target_customer or "",
-        problem_statement or "",
-        idea_description[:200],
-    ]
-    blob = " ".join(part for part in fallback_parts if part).lower()
+    templates = fallback_templates()
+    if templates:
+        return templates
+
+    blob = " ".join(
+        value for value in [idea_description[:220], target_customer or "", problem_statement or "", startup_type or ""] if value
+    ).lower()
+    words = [token for token in re.split(r"[^a-z0-9]+", blob) if len(token) > 3]
     candidates: list[str] = []
-    for phrase in (
-        "public procurement tenders",
-        "bid automation software",
-        "proposal generation software",
-        "tender analysis tool",
-        "government contract bidding software",
-        "workflow automation software",
-        "ai procurement assistant",
-    ):
-        if phrase in blob and phrase not in candidates:
+    for idx in range(0, max(0, len(words) - 1)):
+        phrase = clean_keyword(" ".join(words[idx : idx + 2]))
+        if phrase and phrase not in candidates:
             candidates.append(phrase)
-
-    if not candidates:
-        words = [token for token in re.split(r"[^a-z0-9]+", blob) if len(token) > 3]
-        for idx in range(0, max(0, len(words) - 2)):
-            phrase = " ".join(words[idx : idx + 3]).strip()
-            if phrase and phrase not in candidates:
-                candidates.append(phrase)
-            if len(candidates) >= 5:
-                break
-    return candidates[:5]
+        if len(candidates) >= 4:
+            break
+    return candidates[:4]

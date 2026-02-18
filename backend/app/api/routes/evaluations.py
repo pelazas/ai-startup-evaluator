@@ -673,6 +673,7 @@ def get_evaluation(
 @router.get("/{evaluation_id}/keyword-trends")
 def get_evaluation_keyword_trends(
     evaluation_id: str,
+    keyword_override: str | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -691,6 +692,7 @@ def get_evaluation_keyword_trends(
         problem_statement=evaluation.problem_statement,
         startup_type=evaluation.startup_type,
         market_type=evaluation.market_type,
+        keyword_override=keyword_override,
     )
     return payload
 

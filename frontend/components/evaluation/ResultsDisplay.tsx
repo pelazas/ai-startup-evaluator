@@ -51,26 +51,6 @@ function normalizeDimensionRationale(rationale: string, score: number | null): s
       : "The system scored this dimension, but did not provide detailed reasoning.";
   }
 
-  if (text.startsWith("Score interpreted as")) {
-    const detailedMatch = text.match(
-      /^Score interpreted as\s+(.+?)\s+confidence for this dimension\.\s+(.+?)\s+inferred from\s+(.+?)\s+evidence\s+\(e\.g\.,\s+(.+?)\)\s+with signal:\s+(.+)$/i
-    );
-    if (detailedMatch) {
-      const confidence = `${detailedMatch[1].charAt(0).toUpperCase()}${detailedMatch[1].slice(1)}`;
-      const topic = detailedMatch[2];
-      const corpus = detailedMatch[3];
-      const sourceTitle = detailedMatch[4];
-      const signal = detailedMatch[5];
-      if (score === null) {
-        return `Score unavailable. ${confidence} confidence for this dimension. ${topic} based on ${corpus} evidence from ${sourceTitle}. Evidence signal: ${signal}`;
-      }
-      return `Score ${score}/100. ${confidence} confidence for this dimension. ${topic} based on ${corpus} evidence from ${sourceTitle}. Evidence signal: ${signal}`;
-    }
-
-    const cleaned = text.replace(/^Score interpreted as\s+/i, "").trim();
-    return score === null ? `Score unavailable. ${cleaned}` : `Score ${score}/100. ${cleaned}`;
-  }
-
   return text;
 }
 
@@ -182,6 +162,7 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
   const [trendsError, setTrendsError] = useState<string | null>(null);
   const [trendsData, setTrendsData] = useState<EvaluationKeywordTrends | null>(null);
   const [selectedTrendKeyword, setSelectedTrendKeyword] = useState<string>("");
+  const [trendsLoadingStep, setTrendsLoadingStep] = useState(1);
 
   const scores = evaluation.result.dimension_scores ?? {
     market: null,
@@ -339,6 +320,22 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
     return "Confidence is reduced because evidence quality or coverage was limited in one or more dimensions.";
   }, [evaluation.result.low_confidence]);
 
+  const trendStatusMessage = useMemo(() => {
+    if (!trendsData?.status || trendsData.status === "ok") {
+      return null;
+    }
+    if (trendsData.status === "no_keywords") {
+      return "No keywords could be extracted automatically.";
+    }
+    if (trendsData.status === "no_trends_data") {
+      return "No trend data for this keyword.";
+    }
+    if (trendsData.status === "provider_error") {
+      return "Trend provider unavailable. Try again later.";
+    }
+    return null;
+  }, [trendsData?.status]);
+
   const selectedTrendSeries = useMemo(() => {
     if (!trendsData?.series?.length) {
       return null;
@@ -359,13 +356,17 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
         return;
       }
       if (!data) {
-        setTrendsError("Unable to load Google keyword trend data.");
+        setTrendsError("Unable to load keyword trend data.");
         setTrendsLoading(false);
         return;
       }
       setTrendsData(data);
       if (data.error) {
         setTrendsError(data.error);
+      } else if (data.details && data.status !== "ok") {
+        setTrendsError(data.details);
+      } else {
+        setTrendsError(null);
       }
       const defaultKeyword = data.selected_keyword ?? data.keywords?.[0] ?? data.series?.[0]?.keyword ?? "";
       setSelectedTrendKeyword(defaultKeyword);
@@ -376,6 +377,17 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
       active = false;
     };
   }, [evaluation.id]);
+
+  useEffect(() => {
+    if (!trendsLoading) {
+      return;
+    }
+    setTrendsLoadingStep(1);
+    const timer = window.setInterval(() => {
+      setTrendsLoadingStep((prev) => (prev >= 5 ? 5 : prev + 1));
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [trendsLoading]);
 
   async function handleDownloadPdf() {
     setPdfError(null);
@@ -515,10 +527,11 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
 
       <section className="results-section">
         <h3>Keyword Trend Volume</h3>
-        {trendsLoading ? <p className="form-note">Loading keyword trends...</p> : null}
+        {trendsLoading ? <p className="form-note">Loading keyword trends... keyword {trendsLoadingStep}/5</p> : null}
         {!trendsLoading && trendsError ? <p className="form-note">{trendsError}</p> : null}
+        {!trendsLoading && trendStatusMessage ? <p className="form-note">{trendStatusMessage}</p> : null}
         {!trendsLoading && !trendsError && trendsData?.keywords?.length ? (
-          <>
+          <div className="keyword-trends-block">
             <label className="keyword-select-label">
               Keyword
               <select
@@ -534,11 +547,10 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
               </select>
             </label>
             {selectedTrendSeries ? <KeywordTrendsChart series={selectedTrendSeries} /> : null}
-            <p className="form-note">
-              Source: Web search ({trendsData.source ?? "web_search"}) · {trendsData.location ?? "worldwide"} ·{" "}
-              {trendsData.timeframe ?? "past year"}. Values are absolute mention counts, not a 0-100 index.
+            <p className="form-note keyword-source-note">
+              Source - Google Trends - Worldwide (web search) - past 12 months
             </p>
-          </>
+          </div>
         ) : null}
       </section>
 
@@ -557,6 +569,7 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
                 : "The system scored this dimension but returned no explanation."),
             score
           );
+          const improvementText = evaluation.result.dimension_analyses?.[dimension.key]?.improvement?.trim();
           const resourceHover = resourceTitles.length
             ? resourceTitles.map((title, index) => `${index + 1}. ${title}`).join("\n")
             : "No linked evidence sources";
@@ -576,6 +589,7 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
                   <span className="resource-count" title={resourceHover}>
                     {resourceLabel}
                   </span>
+                  {improvementText ? <p className="dimension-improvement">{improvementText}</p> : null}
                 </div>
               ) : null}
             </div>
