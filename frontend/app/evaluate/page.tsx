@@ -22,6 +22,7 @@ export default function EvaluatePage() {
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [progressError, setProgressError] = useState<string | null>(null);
   const [lastPayload, setLastPayload] = useState<EvaluationCreatePayload | null>(null);
+  const [webEnabledForRun, setWebEnabledForRun] = useState<boolean>(true);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -65,6 +66,7 @@ export default function EvaluatePage() {
     setActiveNode("intake");
     setProgressError(null);
     setLastPayload(payload);
+    setWebEnabledForRun(payload.web_enabled ?? true);
 
     const finalResult = await new Promise<EvaluationResultData | null>((resolve) => {
       let resolved = false;
@@ -112,7 +114,12 @@ export default function EvaluatePage() {
         </>
       ) : (
         <>
-          <ProgressIndicator completedNodes={completedNodes} activeNode={activeNode} errorMessage={progressError} />
+          <ProgressIndicator
+            completedNodes={completedNodes}
+            activeNode={activeNode}
+            webEnabled={webEnabledForRun}
+            errorMessage={progressError}
+          />
           {progressError ? (
             <button
               type="button"

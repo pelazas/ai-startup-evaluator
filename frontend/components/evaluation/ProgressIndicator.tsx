@@ -3,25 +3,28 @@
 const STEP_LABELS: Record<string, string> = {
   intake: "Intake",
   retrieval: "Retrieval",
+  web_retrieval: "Web Retrieval",
   critic: "Strategic Critic",
   verdict: "Verdict Generation",
 };
 
-const STEP_ORDER = ["intake", "retrieval", "critic", "verdict"];
-
 type ProgressIndicatorProps = {
   completedNodes: string[];
   activeNode: string | null;
+  webEnabled: boolean;
   errorMessage?: string | null;
 };
 
-export function ProgressIndicator({ completedNodes, activeNode, errorMessage }: ProgressIndicatorProps) {
+export function ProgressIndicator({ completedNodes, activeNode, webEnabled, errorMessage }: ProgressIndicatorProps) {
+  const stepOrder = webEnabled
+    ? ["intake", "retrieval", "web_retrieval", "critic", "verdict"]
+    : ["intake", "retrieval", "critic", "verdict"];
   return (
     <section className="progress-card">
       <h3>Step 3 of 3: Evaluation</h3>
       <p>This usually takes 30-60 seconds.</p>
       <div className="progress-list">
-        {STEP_ORDER.map((step) => {
+        {stepOrder.map((step) => {
           const done = completedNodes.includes(step);
           const active = activeNode === step && !done;
           return (
@@ -36,4 +39,3 @@ export function ProgressIndicator({ completedNodes, activeNode, errorMessage }: 
     </section>
   );
 }
-

@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 7
     open_router_api_key: str | None = None
     cohere_api_key: str | None = None
+    web_search_enabled: bool = True
+    tavily_api_key: str | None = None
+    web_search_timeout_seconds: int = 8
+    web_search_max_results: int = 8
 
 
 settings = Settings()

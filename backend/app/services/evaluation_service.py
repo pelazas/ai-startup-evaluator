@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,8 @@ from app.schemas.evaluation import EvaluationCreateRequest
 from app.services.profile_service import get_or_create_profile_snapshot
 
 DIMENSIONS = ("market", "technical", "distribution", "founder_fit", "timing")
+NODE_NAME_ALIASES = {"verdict_step": "verdict"}
+LOGGER = logging.getLogger(__name__)
 
 
 def create_pending_evaluation(db: Session, user_id: str, payload: EvaluationCreateRequest) -> Evaluation:
@@ -79,7 +82,15 @@ def persist_evaluation_result(
     evaluation.distribution_score = dimension_scores["distribution"]
     evaluation.founder_fit_score = dimension_scores["founder_fit"]
     evaluation.timing_score = dimension_scores["timing"]
-    evaluation.dimension_analyses = dimension_analyses
+    meta = {
+        "idea_title": state.get("idea_title"),
+        "idea_summary": state.get("idea_summary"),
+        "founder_fit_summary": state.get("founder_fit_summary"),
+    }
+    stored_dimension_analyses = dict(dimension_analyses)
+    stored_dimension_analyses["__meta__"] = meta
+
+    evaluation.dimension_analyses = stored_dimension_analyses
     evaluation.top_risks = state.get("top_risks")
     evaluation.evidence_sources = state.get("evidence_sources")
     evaluation.low_confidence = bool(state.get("low_confidence", False))
@@ -119,9 +130,10 @@ def run_evaluation_graph_stream(db: Session, initial_state: EvaluationState):
         for node_name, node_payload in update.items():
             if isinstance(node_payload, dict):
                 merged_state.update(node_payload)
+            public_node = NODE_NAME_ALIASES.get(node_name, node_name)
             yield {
                 "type": "progress",
-                "node": node_name,
+                "node": public_node,
                 "status": "completed",
             }
 

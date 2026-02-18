@@ -6,6 +6,35 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../contexts/auth-context";
 import { loadStoredEvaluations, StoredEvaluation } from "../lib/evaluations";
 
+function summarizeIdea(text: string): string {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return "Untitled idea";
+  }
+  return normalized.length > 110 ? `${normalized.slice(0, 110).trim()}...` : normalized;
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function verdictClass(verdict: string | null | undefined): string {
+  if (verdict === "GO") return "home-verdict home-verdict-go";
+  if (verdict === "CONDITIONAL") return "home-verdict home-verdict-conditional";
+  if (verdict === "NO-GO") return "home-verdict home-verdict-no-go";
+  return "home-verdict home-verdict-neutral";
+}
+
 export default function HomePage() {
   const { isAuthenticated, user } = useAuth();
   const [items, setItems] = useState<StoredEvaluation[]>([]);
@@ -29,32 +58,49 @@ export default function HomePage() {
 
   return (
     <main>
-      <h1>Welcome back</h1>
-      <p>
-        {user?.has_profile
-          ? "You are ready to evaluate new startup ideas."
-          : "Complete your founder profile before creating a new evaluation."}
-      </p>
+      <section className="home-hero">
+        <p className="home-eyebrow">Dashboard</p>
+        <h1>Welcome back</h1>
+        <p className="home-subtitle">
+          {user?.has_profile
+            ? "Review your latest idea verdicts or launch a new startup evaluation."
+            : "Complete your founder profile first to unlock startup evaluations."}
+        </p>
+      </section>
+
       <div className="home-actions">
         <Link href={user?.has_profile ? "/evaluate" : "/profile/setup"}>
-          {user?.has_profile ? "Start New Evaluation" : "Finish Profile Setup"}
+          {user?.has_profile ? "Start New Evaluation" : "Finish Profile Setup"} <span aria-hidden>→</span>
         </Link>
       </div>
 
       <section className="idea-summary">
-        <h2>Previous AI ideas</h2>
-        {!items.length ? <p className="form-note">No previous ideas yet.</p> : null}
-        {items.map((item) => (
-          <article key={item.id} className="idea-card">
-            <h3>{item.idea_input.idea_description.slice(0, 130)}</h3>
-            <p>
-              Verdict: <strong>{item.result.verdict ?? "N/A"}</strong> | Score:{" "}
-              <strong>{item.result.overall_score ?? "N/A"}</strong>
-            </p>
-            <p className="form-note">{new Date(item.created_at).toLocaleString()}</p>
-            <Link href={`/evaluations/${item.id}`}>Open details</Link>
+        <div className="idea-summary-header">
+          <h2>Previous AI ideas</h2>
+          <span className="idea-count">{items.length}</span>
+        </div>
+        {!items.length ? (
+          <article className="idea-empty-state">
+            <p className="form-note">No previous ideas yet. Run your first evaluation to populate this feed.</p>
           </article>
-        ))}
+        ) : null}
+        <div className="idea-card-grid">
+          {items.map((item) => (
+            <article key={item.id} className="idea-card">
+              <div className="idea-card-top">
+                <span className={verdictClass(item.result.verdict)}>{item.result.verdict ?? "UNAVAILABLE"}</span>
+                <span className="idea-score-pill">
+                  {typeof item.result.overall_score === "number" ? `${item.result.overall_score}/100` : "No score"}
+                </span>
+              </div>
+              <h3>{summarizeIdea(item.idea_input.idea_description)}</h3>
+              <p className="idea-meta">{formatTimestamp(item.created_at)}</p>
+              <Link href={`/evaluations/${item.id}`} className="idea-link">
+                Open details
+              </Link>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
   );

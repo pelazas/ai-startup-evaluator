@@ -8,10 +8,12 @@ export type EvaluationCreatePayload = {
   problem_statement?: string | null;
   startup_type?: string | null;
   market_type?: string | null;
+  web_enabled?: boolean;
 };
 
 export type EvaluationResultData = {
   evaluation_id: string;
+  created_at?: string | null;
   status: "completed" | "partial" | "failed" | "pending";
   overall_score: number | null;
   verdict: "GO" | "CONDITIONAL" | "NO-GO" | null;
@@ -21,6 +23,17 @@ export type EvaluationResultData = {
   failed_dimensions?: DimensionKey[];
   parse_diagnostics?: string[];
   top_risks?: string[];
+  idea_title?: string | null;
+  idea_summary?: string | null;
+  founder_fit_summary?: string | null;
+  error_message?: string | null;
+  web_enabled?: boolean;
+  web_queries_used?: string[];
+  evidence_mix?: {
+    internal_sources?: number;
+    web_sources?: number;
+    total_sources?: number;
+  };
   evidence_sources?: Array<{
     chunk_id?: string | null;
     title?: string;
@@ -47,6 +60,10 @@ export type StoredEvaluation = {
   status: EvaluationResultData["status"];
   idea_input: EvaluationCreatePayload;
   result: EvaluationResultData;
+};
+
+export type EvaluationPdfExportPayload = {
+  chart_image_data_url?: string;
 };
 
 const HISTORY_KEY = "evaluation_history_v1";
@@ -172,4 +189,48 @@ export async function fetchEvaluationsList(): Promise<EvaluationResultData[] | n
   } catch {
     return null;
   }
+}
+
+function filenameFromContentDisposition(contentDisposition: string | null, fallback: string): string {
+  if (!contentDisposition) {
+    return fallback;
+  }
+  const match = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return match?.[1] ?? fallback;
+}
+
+export async function downloadEvaluationPdf(
+  evaluationId: string,
+  payload?: EvaluationPdfExportPayload
+): Promise<void> {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error("Missing auth token.");
+  }
+
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const response = await fetch(`${apiBase}/api/evaluations/${evaluationId}/export`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
+  });
+
+  if (!response.ok) {
+    throw new Error(`PDF export failed (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  const fallback = `evaluation-${evaluationId}.pdf`;
+  const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition"), fallback);
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
 }

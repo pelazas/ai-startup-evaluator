@@ -21,6 +21,7 @@ export function IdeaInputForm({ initialValue, onSubmit, disabled = false }: Idea
       problem_statement: "",
       startup_type: "",
       market_type: "",
+      web_enabled: true,
     }
   );
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +44,7 @@ export function IdeaInputForm({ initialValue, onSubmit, disabled = false }: Idea
         problem_statement: form.problem_statement?.trim() || null,
         startup_type: form.startup_type || null,
         market_type: form.market_type || null,
+        web_enabled: form.web_enabled ?? true,
       });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to submit evaluation.");
@@ -123,6 +125,16 @@ export function IdeaInputForm({ initialValue, onSubmit, disabled = false }: Idea
         </div>
       </fieldset>
 
+      <label className="inline-toggle">
+        <input
+          type="checkbox"
+          checked={Boolean(form.web_enabled ?? true)}
+          onChange={(event) => setForm((prev) => ({ ...prev, web_enabled: event.target.checked }))}
+          disabled={disabled || submitting}
+        />
+        Use live web data (slower, more accurate)
+      </label>
+
       {!isValid ? <p className="form-note">Idea description must be at least 10 characters.</p> : null}
       {error ? <p className="form-error">{error}</p> : null}
 
@@ -132,4 +144,3 @@ export function IdeaInputForm({ initialValue, onSubmit, disabled = false }: Idea
     </form>
   );
 }
-

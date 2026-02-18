@@ -7,6 +7,7 @@ class EvaluationCreateRequest(BaseModel):
     problem_statement: str | None = None
     startup_type: str | None = Field(default=None, max_length=50)
     market_type: str | None = Field(default=None, max_length=10)
+    web_enabled: bool = True
 
     @field_validator("idea_description", "target_customer", "problem_statement")
     @classmethod
@@ -16,3 +17,6 @@ class EvaluationCreateRequest(BaseModel):
         normalized = value.strip()
         return normalized or None
 
+
+class EvaluationExportRequest(BaseModel):
+    chart_image_data_url: str | None = None

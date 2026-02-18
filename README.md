@@ -24,6 +24,10 @@ Required variables:
 - `JWT_EXPIRE_DAYS`
 - `OPEN_ROUTER_API_KEY`
 - `COHERE_API_KEY`
+- `WEB_SEARCH_ENABLED` (`true`/`false`)
+- `TAVILY_API_KEY` (required for live web search)
+- `WEB_SEARCH_TIMEOUT_SECONDS`
+- `WEB_SEARCH_MAX_RESULTS`
 - `NEXT_PUBLIC_API_BASE_URL`
 
 ## Run PostgreSQL

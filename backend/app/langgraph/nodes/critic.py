@@ -22,6 +22,92 @@ DIMENSION_ALIASES: dict[str, tuple[str, ...]] = {
 SCORE_KEYS = ("score", "value", "rating")
 RATIONALE_KEYS = ("rationale", "reasoning", "analysis", "justification", "explanation")
 
+LEVEL_TO_SCORE = {
+    "none": 20,
+    "basic": 40,
+    "intermediate": 60,
+    "advanced": 80,
+    "expert": 92,
+}
+
+
+def _clamp_score(value: int | float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def _profile_level_score(value: Any, default: int = 55) -> int:
+    if isinstance(value, str):
+        mapped = LEVEL_TO_SCORE.get(value.strip().lower())
+        if mapped is not None:
+            return mapped
+    return default
+
+
+def _profile_founder_fit_heuristic(profile_data: dict[str, Any]) -> tuple[int, str]:
+    # Technical execution capability.
+    technical_fields = (
+        "cloud_deployment_level",
+        "ai_coding_agents_level",
+        "backend_engineering_level",
+        "product_ux_level",
+        "data_ml_engineering_level",
+    )
+    technical_values = [_profile_level_score(profile_data.get(field)) for field in technical_fields]
+    technical_score = _clamp_score(sum(technical_values) / len(technical_values)) if technical_values else 55
+
+    # Domain familiarity.
+    domain_level = profile_data.get("domain_expertise_level")
+    if isinstance(domain_level, int):
+        domain_score = _clamp_score(20 + (domain_level * 15))
+    else:
+        domain_score = 55
+
+    # Distribution readiness from channels, sales experience, audience access.
+    channels = profile_data.get("distribution_channels")
+    channels_count = len(channels) if isinstance(channels, list) else 0
+    channel_score = 35 + min(35, channels_count * 7)
+    sales_exp = str(profile_data.get("sales_experience") or "").strip().lower()
+    sales_score = {"none": 30, "some": 60, "strong": 85}.get(sales_exp, 50)
+    audience = str(profile_data.get("audience_access") or "").strip().lower()
+    audience_score = {"none": 25, "<1k": 40, "1k-10k": 65, "10k+": 85}.get(audience, 50)
+    distribution_score = _clamp_score((channel_score + sales_score + audience_score) / 3)
+
+    # Execution capacity.
+    weekly_hours = profile_data.get("weekly_hours_available")
+    if isinstance(weekly_hours, int):
+        hours_score = _clamp_score(20 + min(65, weekly_hours * 1.2))
+    else:
+        hours_score = 55
+    hiring = str(profile_data.get("hiring_ability") or "").strip().lower()
+    hiring_score = {"none": 35, "1-2": 65, "3+": 80}.get(hiring, 50)
+    team_size = str(profile_data.get("team_size") or "").strip().lower()
+    team_score = {"solo": 45, "2-3": 65, "4-10": 78, "10+": 82}.get(team_size, 55)
+    capacity_score = _clamp_score((hours_score + hiring_score + team_score) / 3)
+
+    # Hard constraint penalty.
+    penalty = 0
+    if bool(profile_data.get("regulatory_constraints")):
+        penalty += 5
+    if bool(profile_data.get("ip_constraints")):
+        penalty += 5
+    if bool(profile_data.get("geo_legal_constraints")):
+        penalty += 5
+
+    heuristic = _clamp_score(
+        (technical_score * 0.35)
+        + (domain_score * 0.20)
+        + (distribution_score * 0.25)
+        + (capacity_score * 0.20)
+        - penalty
+    )
+    rationale = (
+        f"Founder fit calibrated from profile: technical readiness {technical_score}/100, "
+        f"domain familiarity {domain_score}/100, distribution readiness {distribution_score}/100, "
+        f"execution capacity {capacity_score}/100"
+        + (f", with constraints penalty {penalty}." if penalty else ".")
+    )
+    return heuristic, rationale
+
 
 class _DimensionSchema(BaseModel):
     score: int = Field(ge=0, le=100)
@@ -228,6 +314,30 @@ def critic_node(state: EvaluationState) -> EvaluationState:
     )
 
     parse_diagnostics.extend(_validate_strict_dimensions_schema(dimension_scores, dimension_analyses))
+
+    profile_data = state.get("profile_data", {})
+    if not isinstance(profile_data, dict):
+        profile_data = {}
+    heuristic_founder_fit, heuristic_rationale = _profile_founder_fit_heuristic(profile_data)
+    llm_founder_fit = dimension_scores.get("founder_fit")
+    if isinstance(llm_founder_fit, int):
+        blended = _clamp_score((llm_founder_fit * 0.6) + (heuristic_founder_fit * 0.4))
+        dimension_scores["founder_fit"] = blended
+        existing = dimension_analyses.get("founder_fit", {})
+        existing_rationale = existing.get("rationale") if isinstance(existing, dict) else None
+        dimension_analyses["founder_fit"] = {
+            "rationale": (
+                f"{existing_rationale if isinstance(existing_rationale, str) else 'Founder fit assessed from critic output.'} "
+                f"{heuristic_rationale}"
+            ).strip()
+        }
+        parse_diagnostics.append(f"founder_fit_blended:llm={llm_founder_fit},profile={heuristic_founder_fit}")
+    else:
+        dimension_scores["founder_fit"] = heuristic_founder_fit
+        dimension_analyses["founder_fit"] = {"rationale": heuristic_rationale}
+        if "founder_fit" in failed_dimensions:
+            failed_dimensions = [dim for dim in failed_dimensions if dim != "founder_fit"]
+        parse_diagnostics.append("founder_fit_filled_from_profile")
 
     top_risks_raw = critic_result.get("top_risks")
     top_risks: list[str]
