@@ -21,6 +21,8 @@ class Evaluation(Base):
     problem_statement: Mapped[str | None] = mapped_column(Text, nullable=True)
     startup_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     market_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    idea_tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default=text("ARRAY[]::text[]"))
+    idea_folder: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     overall_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verdict: Mapped[str | None] = mapped_column(String(20), nullable=True)

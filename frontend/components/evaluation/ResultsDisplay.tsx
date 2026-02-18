@@ -45,16 +45,23 @@ function normalizeDimensionRationale(rationale: string, score: number | null): s
   }
 
   if (text.startsWith("Score interpreted as")) {
-    const cleaned = text
-      .replace(/^Score interpreted as\s+/i, "")
-      .replace(/\s+with signal:\s*.+$/i, "")
-      .replace(/\s+inferred from\s+/i, " based on ")
-      .replace(/\s+evidence \(e\.g\.,\s*/i, " evidence from ")
-      .replace(/\)\.?$/, "")
-      .trim();
-    return score === null
-      ? `This dimension could not be fully scored. ${cleaned}.`
-      : `Score ${score}/100. ${cleaned}.`;
+    const detailedMatch = text.match(
+      /^Score interpreted as\s+(.+?)\s+confidence for this dimension\.\s+(.+?)\s+inferred from\s+(.+?)\s+evidence\s+\(e\.g\.,\s+(.+?)\)\s+with signal:\s+(.+)$/i
+    );
+    if (detailedMatch) {
+      const confidence = `${detailedMatch[1].charAt(0).toUpperCase()}${detailedMatch[1].slice(1)}`;
+      const topic = detailedMatch[2];
+      const corpus = detailedMatch[3];
+      const sourceTitle = detailedMatch[4];
+      const signal = detailedMatch[5];
+      if (score === null) {
+        return `Score unavailable. ${confidence} confidence for this dimension. ${topic} based on ${corpus} evidence from ${sourceTitle}. Evidence signal: ${signal}`;
+      }
+      return `Score ${score}/100. ${confidence} confidence for this dimension. ${topic} based on ${corpus} evidence from ${sourceTitle}. Evidence signal: ${signal}`;
+    }
+
+    const cleaned = text.replace(/^Score interpreted as\s+/i, "").trim();
+    return score === null ? `Score unavailable. ${cleaned}` : `Score ${score}/100. ${cleaned}`;
   }
 
   return text;
@@ -259,7 +266,7 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
     };
 
     for (const source of sources) {
-      const title = (source.title ?? source.doc_name ?? "Untitled source").trim();
+      const title = (source.doc_name ?? source.title ?? "Untitled source").trim();
       for (const rawDimension of source.supporting_dimensions ?? []) {
         if (rawDimension in grouped && !grouped[rawDimension as DimensionKey].includes(title)) {
           grouped[rawDimension as DimensionKey].push(title);
@@ -351,6 +358,13 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
       <section className="results-hero">
         <p className="results-kicker">Evaluation Results</p>
         <p className="idea-title">{ideaTitle}</p>
+        {(evaluation.result.idea_folder || (evaluation.result.idea_tags ?? []).length) ? (
+          <p className="form-note">
+            {evaluation.result.idea_folder ? `Folder: ${evaluation.result.idea_folder}` : ""}
+            {evaluation.result.idea_folder && (evaluation.result.idea_tags ?? []).length ? " · " : ""}
+            {(evaluation.result.idea_tags ?? []).length ? `Tags: ${(evaluation.result.idea_tags ?? []).join(", ")}` : ""}
+          </p>
+        ) : null}
         <p className="hero-summary">{ideaSummary}</p>
 
         <div className="results-header">

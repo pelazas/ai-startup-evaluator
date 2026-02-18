@@ -26,6 +26,8 @@ def create_pending_evaluation(db: Session, user_id: str, payload: EvaluationCrea
         problem_statement=payload.problem_statement,
         startup_type=payload.startup_type,
         market_type=payload.market_type,
+        idea_tags=[],
+        idea_folder=None,
         status="pending",
     )
     db.add(evaluation)
@@ -93,6 +95,10 @@ def persist_evaluation_result(
     evaluation.dimension_analyses = stored_dimension_analyses
     evaluation.top_risks = state.get("top_risks")
     evaluation.evidence_sources = state.get("evidence_sources")
+    tags = state.get("idea_tags")
+    evaluation.idea_tags = [str(item).strip().lower() for item in tags] if isinstance(tags, list) else []
+    folder = state.get("idea_folder")
+    evaluation.idea_folder = str(folder).strip() if isinstance(folder, str) and str(folder).strip() else None
     evaluation.low_confidence = bool(state.get("low_confidence", False))
     evaluation.error_message = error_message
 

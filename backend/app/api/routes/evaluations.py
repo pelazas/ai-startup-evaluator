@@ -5,7 +5,7 @@ import io
 import json
 import logging
 import re
-from textwrap import wrap
+from html import escape as html_escape
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
@@ -24,17 +24,28 @@ from app.services.evaluation_service import (
     run_evaluation_graph_stream,
 )
 from app.services.profile_service import get_profile_by_user_id
+from app.utils.llm import parse_filter_tags
 
 try:
     from reportlab.lib.pagesizes import LETTER
-    from reportlab.lib.utils import ImageReader
-    from reportlab.pdfgen import canvas
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     REPORTLAB_AVAILABLE = True
 except Exception:  # pragma: no cover
     LETTER = (612.0, 792.0)
-    ImageReader = None
-    canvas = None
+    ParagraphStyle = None
+    getSampleStyleSheet = None
+    inch = 72.0
+    colors = None
+    Image = None
+    Paragraph = None
+    SimpleDocTemplate = None
+    Spacer = None
+    Table = None
+    TableStyle = None
     REPORTLAB_AVAILABLE = False
 
 router = APIRouter()
@@ -85,58 +96,13 @@ def _evaluation_to_payload(evaluation: Evaluation) -> dict:
         "idea_title": meta.get("idea_title"),
         "idea_summary": meta.get("idea_summary"),
         "founder_fit_summary": meta.get("founder_fit_summary"),
+        "idea_tags": evaluation.idea_tags or [],
+        "idea_folder": evaluation.idea_folder,
         "failed_dimensions": _failed_dimensions_from_scores(dimension_scores),
         "parse_diagnostics": [],
         "created_at": evaluation.created_at.isoformat() if evaluation.created_at else None,
         "error_message": evaluation.error_message,
     }
-
-
-def _line_writer(pdf: canvas.Canvas):
-    y = 760
-    page_number = 1
-    left = 50
-    right = 560
-
-    def write_line(text: str = "", font_name: str = "Helvetica", font_size: int = 11, spacing: int = 16):
-        nonlocal y, page_number
-        if y < 55:
-            pdf.setFont("Helvetica", 9)
-            pdf.drawString(left, 35, f"Page {page_number}")
-            pdf.showPage()
-            page_number += 1
-            y = 760
-        pdf.setFont(font_name, font_size)
-        pdf.drawString(left, y, text[: int((right - left) / (font_size * 0.5))])
-        y -= spacing
-
-    def write_paragraph(text: str | None, font_name: str = "Helvetica", font_size: int = 11, spacing: int = 14):
-        content = (text or "").strip()
-        if not content:
-            write_line("-", font_name=font_name, font_size=font_size, spacing=spacing)
-            return
-        width = max(40, int((right - left) / (font_size * 0.52)))
-        for raw_line in content.splitlines():
-            wrapped = wrap(raw_line.strip() or " ", width=width)
-            for piece in wrapped:
-                write_line(piece, font_name=font_name, font_size=font_size, spacing=spacing)
-
-    def reserve_vertical(height: int):
-        nonlocal y, page_number
-        if y - height < 55:
-            pdf.setFont("Helvetica", 9)
-            pdf.drawString(left, 35, f"Page {page_number}")
-            pdf.showPage()
-            page_number += 1
-            y = 760
-        top = y
-        y -= height
-        return top
-
-    def get_page_number() -> int:
-        return page_number
-
-    return write_line, write_paragraph, reserve_vertical, get_page_number
 
 
 def _decode_image_data_url(data_url: str | None) -> bytes | None:
@@ -151,75 +117,251 @@ def _decode_image_data_url(data_url: str | None) -> bytes | None:
         return None
 
 
+def _safe_text(value: str | None, fallback: str = "-") -> str:
+    if not isinstance(value, str):
+        return fallback
+    cleaned = value.strip()
+    return cleaned if cleaned else fallback
+
+
+def _safe_paragraph_text(value: str | None, fallback: str = "-") -> str:
+    return html_escape(_safe_text(value, fallback))
+
+
+def _resolve_brand_color(export_request: EvaluationExportRequest | None):
+    raw = (export_request.primary_color_hex if export_request else None) or "#0E7490"
+    candidate = raw.strip()
+    if not re.match(r"^#?[0-9a-fA-F]{6}$", candidate):
+        candidate = "#0E7490"
+    if not candidate.startswith("#"):
+        candidate = f"#{candidate}"
+    return colors.HexColor(candidate)
+
+
+def _with_alpha(color, alpha: float):
+    return colors.Color(color.red, color.green, color.blue, alpha=alpha)
+
+
+def _section_heading(title: str, styles: dict[str, ParagraphStyle]):
+    return Paragraph(title, styles["section"])
+
+
 def _build_evaluation_pdf(
     evaluation: Evaluation,
     profile_snapshot: ProfileSnapshot | None,
     export_request: EvaluationExportRequest | None,
 ) -> bytes:
-    if not REPORTLAB_AVAILABLE or canvas is None:
+    if not REPORTLAB_AVAILABLE or SimpleDocTemplate is None:
         raise RuntimeError("PDF export dependency missing: reportlab is not installed.")
+
     buffer = io.BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=LETTER)
-    write_line, write_paragraph, reserve_vertical, get_page_number = _line_writer(pdf)
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=LETTER,
+        leftMargin=0.7 * inch,
+        rightMargin=0.7 * inch,
+        topMargin=1.1 * inch,
+        bottomMargin=0.7 * inch,
+        title="Startup Idea Evaluation Report",
+        author=(export_request.company_name if export_request and export_request.company_name else "CRAG AI"),
+    )
 
     meta = _extract_meta_from_dimension_analyses(evaluation.dimension_analyses)
-    title = (meta.get("idea_title") or "").strip() or "Startup Idea Evaluation Report"
+    brand = _resolve_brand_color(export_request)
+    brand_soft = _with_alpha(brand, 0.12)
+    brand_mid = _with_alpha(brand, 0.2)
 
-    write_line("Startup Idea Evaluation Report", font_name="Helvetica-Bold", font_size=16, spacing=22)
-    write_line(f"Title: {title}", font_name="Helvetica-Bold", font_size=12, spacing=16)
-    write_line(f"Evaluation ID: {evaluation.id}")
-    write_line(f"Created: {evaluation.created_at.isoformat(sep=' ', timespec='seconds')}")
-    write_line()
-
-    write_line("Overall Result", font_name="Helvetica-Bold", font_size=13, spacing=18)
-    write_line(f"Status: {evaluation.status}")
-    write_line(f"Verdict: {evaluation.verdict or 'UNAVAILABLE'}")
-    write_line(f"Overall Score: {evaluation.overall_score if evaluation.overall_score is not None else 'Unavailable'}")
-    write_line(f"Low Confidence: {'Yes' if evaluation.low_confidence else 'No'}")
-    write_line()
-
-    write_line("Dimension Scores", font_name="Helvetica-Bold", font_size=13, spacing=18)
-    dimension_scores = {
-        "Market": evaluation.market_score,
-        "Technical": evaluation.technical_score,
-        "Distribution": evaluation.distribution_score,
-        "Founder Fit": evaluation.founder_fit_score,
-        "Timing": evaluation.timing_score,
+    styles = getSampleStyleSheet()
+    custom_styles = {
+        "brand": ParagraphStyle(
+            "brand",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=11,
+            textColor=brand,
+            leading=13,
+            spaceAfter=6,
+        ),
+        "title": ParagraphStyle(
+            "title",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=24,
+            textColor=colors.HexColor("#0B1220"),
+            leading=28,
+            spaceAfter=6,
+        ),
+        "subtitle": ParagraphStyle(
+            "subtitle",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=11,
+            textColor=colors.HexColor("#4B5563"),
+            leading=15,
+            spaceAfter=14,
+        ),
+        "section": ParagraphStyle(
+            "section",
+            parent=styles["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            textColor=colors.HexColor("#111827"),
+            leading=18,
+            spaceBefore=12,
+            spaceAfter=8,
+        ),
+        "body": ParagraphStyle(
+            "body",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=10.5,
+            textColor=colors.HexColor("#1F2937"),
+            leading=15,
+            spaceAfter=6,
+        ),
+        "muted": ParagraphStyle(
+            "muted",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=9.5,
+            textColor=colors.HexColor("#6B7280"),
+            leading=13,
+        ),
+        "pill": ParagraphStyle(
+            "pill",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            textColor=colors.white,
+            alignment=1,
+            leading=12,
+        ),
     }
-    for label, value in dimension_scores.items():
-        score_label = str(value) if isinstance(value, int) else "Unavailable"
-        write_line(f"- {label}: {score_label}")
-    write_line()
+
+    report_title = _safe_paragraph_text(meta.get("idea_title"), "Startup Idea Evaluation Report")
+    company_name = _safe_text(export_request.company_name if export_request else None, "CRAG AI")
+    company_tagline = _safe_paragraph_text(
+        export_request.company_tagline if export_request else None,
+        "Evidence-weighted startup idea stress test",
+    )
+    summary_text = _safe_paragraph_text(meta.get("idea_summary"), "No summary generated for this run.")
+
+    story = []
+    story.append(Paragraph(company_name, custom_styles["brand"]))
+    story.append(Paragraph(report_title, custom_styles["title"]))
+    story.append(Paragraph(company_tagline, custom_styles["subtitle"]))
+
+    verdict = _safe_text(evaluation.verdict, "UNAVAILABLE")
+    score = str(evaluation.overall_score) if isinstance(evaluation.overall_score, int) else "N/A"
+    confidence = "Low confidence" if evaluation.low_confidence else "Normal confidence"
+    created_on = evaluation.created_at.strftime("%b %d, %Y %H:%M") if evaluation.created_at else "-"
+    chips = Table(
+        [[f"Status: {evaluation.status.upper()}", f"Verdict: {verdict}", f"Score: {score}/100", confidence]],
+        colWidths=[1.5 * inch, 1.6 * inch, 1.2 * inch, 2.1 * inch],
+    )
+    chips.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), brand_soft),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#0F172A")),
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("BOX", (0, 0), (-1, -1), 0.8, brand_mid),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+    story.append(chips)
+    story.append(Spacer(1, 10))
+
+    meta_table = Table(
+        [
+            ["Evaluation ID", evaluation.id],
+            ["Created", created_on],
+            ["Startup Type", _safe_text(evaluation.startup_type)],
+            ["Market Type", _safe_text(evaluation.market_type)],
+        ],
+        colWidths=[1.35 * inch, 5.05 * inch],
+    )
+    meta_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#374151")),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#E5E7EB")),
+            ]
+        )
+    )
+    story.append(meta_table)
+    story.append(Spacer(1, 12))
+
+    story.append(_section_heading("Executive Summary", custom_styles))
+    story.append(Paragraph(summary_text, custom_styles["body"]))
+
+    story.append(_section_heading("Dimension Scores", custom_styles))
+    dimension_rows = [
+        ["Market", evaluation.market_score],
+        ["Technical", evaluation.technical_score],
+        ["Distribution", evaluation.distribution_score],
+        ["Founder Fit", evaluation.founder_fit_score],
+        ["Timing", evaluation.timing_score],
+    ]
+    score_table_data = [["Dimension", "Score"]] + [
+        [name, f"{value}/100" if isinstance(value, int) else "Unavailable"] for name, value in dimension_rows
+    ]
+    score_table = Table(score_table_data, colWidths=[3.8 * inch, 2.6 * inch])
+    score_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), brand),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ]
+        )
+    )
+    story.append(score_table)
 
     chart_bytes = _decode_image_data_url(export_request.chart_image_data_url if export_request else None)
-    if chart_bytes and ImageReader is not None:
-        write_line("Score Radar Chart", font_name="Helvetica-Bold", font_size=13, spacing=18)
-        chart_height = 240
-        chart_width = 240
-        top_y = reserve_vertical(chart_height + 10)
+    if chart_bytes and Image is not None:
+        story.append(_section_heading("Score Radar Chart", custom_styles))
         try:
-            pdf.drawImage(
-                ImageReader(io.BytesIO(chart_bytes)),
-                50,
-                top_y - chart_height,
-                width=chart_width,
-                height=chart_height,
-                preserveAspectRatio=True,
-                mask="auto",
-            )
-            write_line()
+            chart = Image(io.BytesIO(chart_bytes))
+            chart.drawHeight = 2.8 * inch
+            chart.drawWidth = 2.8 * inch
+            chart.hAlign = "LEFT"
+            story.append(chart)
         except Exception:
-            write_line("Unable to render chart image from export payload.")
-            write_line()
+            story.append(Paragraph("Chart could not be rendered from export payload.", custom_styles["muted"]))
 
-    write_line("Top Risks", font_name="Helvetica-Bold", font_size=13, spacing=18)
-    for risk in (evaluation.top_risks or [])[:3]:
-        write_paragraph(f"- {risk}")
-    if not evaluation.top_risks:
-        write_line("-")
-    write_line()
+    story.append(_section_heading("Top Risks", custom_styles))
+    risks = (evaluation.top_risks or [])[:3]
+    if not risks:
+        story.append(Paragraph("No explicit top risks were returned for this run.", custom_styles["muted"]))
+    for idx, risk in enumerate(risks, start=1):
+        story.append(Paragraph(f"{idx}. {_safe_paragraph_text(risk)}", custom_styles["body"]))
 
-    write_line("Dimension Analysis", font_name="Helvetica-Bold", font_size=13, spacing=18)
+    story.append(_section_heading("Detailed Dimension Evaluation", custom_styles))
     dimension_analyses = evaluation.dimension_analyses if isinstance(evaluation.dimension_analyses, dict) else {}
     for key, label in (
         ("market", "Market"),
@@ -230,27 +372,22 @@ def _build_evaluation_pdf(
     ):
         analysis = dimension_analyses.get(key) if isinstance(dimension_analyses.get(key), dict) else {}
         rationale = analysis.get("rationale") if isinstance(analysis, dict) else None
-        write_line(f"{label}:", font_name="Helvetica-Bold", font_size=11, spacing=14)
-        write_paragraph(rationale)
-    write_line()
+        story.append(Paragraph(f"<b>{label}</b>", custom_styles["body"]))
+        story.append(Paragraph(_safe_paragraph_text(rationale, "No rationale returned."), custom_styles["body"]))
 
-    write_line("Idea Input", font_name="Helvetica-Bold", font_size=13, spacing=18)
-    write_line("Idea Description:", font_name="Helvetica-Bold", font_size=11, spacing=14)
-    write_paragraph(evaluation.idea_description)
+    story.append(_section_heading("Idea Input", custom_styles))
+    story.append(Paragraph(f"<b>Idea Description</b>: {_safe_paragraph_text(evaluation.idea_description)}", custom_styles["body"]))
     if evaluation.problem_statement:
-        write_line("Problem Statement:", font_name="Helvetica-Bold", font_size=11, spacing=14)
-        write_paragraph(evaluation.problem_statement)
+        story.append(
+            Paragraph(f"<b>Problem Statement</b>: {_safe_paragraph_text(evaluation.problem_statement)}", custom_styles["body"])
+        )
     if evaluation.target_customer:
-        write_line("Target Customer:", font_name="Helvetica-Bold", font_size=11, spacing=14)
-        write_paragraph(evaluation.target_customer)
-    write_line(f"Startup Type: {evaluation.startup_type or '-'}")
-    write_line(f"Market Type: {evaluation.market_type or '-'}")
-    write_line()
+        story.append(Paragraph(f"<b>Target Customer</b>: {_safe_paragraph_text(evaluation.target_customer)}", custom_styles["body"]))
 
-    write_line("Founder Profile Snapshot", font_name="Helvetica-Bold", font_size=13, spacing=18)
+    story.append(_section_heading("Founder Profile Snapshot", custom_styles))
     profile_data = profile_snapshot.profile_data if profile_snapshot else {}
     if not isinstance(profile_data, dict) or not profile_data:
-        write_line("-")
+        story.append(Paragraph("No profile snapshot available for this evaluation.", custom_styles["muted"]))
     else:
         for key in (
             "full_name",
@@ -274,24 +411,45 @@ def _build_evaluation_pdf(
                 text = ", ".join(str(item) for item in value)
             else:
                 text = str(value)
-            write_paragraph(f"{key.replace('_', ' ').title()}: {text}")
+            story.append(
+                Paragraph(f"<b>{key.replace('_', ' ').title()}</b>: {_safe_paragraph_text(text)}", custom_styles["body"])
+            )
+
+    custom_sections = export_request.custom_sections if export_request and export_request.custom_sections else []
+    for section in custom_sections[:8]:
+        if not isinstance(section, dict):
+            continue
+        section_title = _safe_paragraph_text(section.get("title"), "Custom Section")
+        section_body = _safe_paragraph_text(section.get("content"), "-")
+        story.append(_section_heading(section_title, custom_styles))
+        story.append(Paragraph(section_body, custom_styles["body"]))
 
     if isinstance(evaluation.evidence_sources, list) and evaluation.evidence_sources:
-        write_line()
-        write_line("Evidence Sources", font_name="Helvetica-Bold", font_size=13, spacing=18)
+        story.append(_section_heading("Evidence Sources", custom_styles))
         for source in evaluation.evidence_sources[:20]:
             if not isinstance(source, dict):
                 continue
             source_title = source.get("title") or source.get("doc_name") or "Untitled source"
             source_url = source.get("source_url") or ""
-            detail = f"- {source_title}"
+            detail = _safe_paragraph_text(source_title)
             if source_url:
-                detail += f" ({source_url})"
-            write_paragraph(detail)
+                detail += f" - {_safe_paragraph_text(source_url)}"
+            story.append(Paragraph(detail, custom_styles["body"]))
 
-    pdf.setFont("Helvetica", 9)
-    pdf.drawString(50, 35, f"Page {get_page_number()}")
-    pdf.save()
+    def draw_page_decorations(canvas_obj, document):
+        width, height = LETTER
+        canvas_obj.saveState()
+        canvas_obj.setFillColor(brand)
+        canvas_obj.rect(0, height - 26, width, 26, stroke=0, fill=1)
+        canvas_obj.setFillColor(colors.white)
+        canvas_obj.setFont("Helvetica-Bold", 9)
+        canvas_obj.drawString(document.leftMargin, height - 17, company_name.upper())
+        canvas_obj.setFillColor(colors.HexColor("#6B7280"))
+        canvas_obj.setFont("Helvetica", 8)
+        canvas_obj.drawRightString(width - document.rightMargin, 22, f"Page {canvas_obj.getPageNumber()}")
+        canvas_obj.restoreState()
+
+    doc.build(story, onFirstPage=draw_page_decorations, onLaterPages=draw_page_decorations)
     return buffer.getvalue()
 
 
@@ -370,6 +528,8 @@ def create_evaluation(
                         "idea_title": final_state.get("idea_title") or meta.get("idea_title"),
                         "idea_summary": final_state.get("idea_summary") or meta.get("idea_summary"),
                         "founder_fit_summary": final_state.get("founder_fit_summary") or meta.get("founder_fit_summary"),
+                        "idea_tags": persisted.idea_tags or [],
+                        "idea_folder": persisted.idea_folder,
                         "web_enabled": request.web_enabled,
                         "web_queries_used": final_state.get("web_queries_used", []),
                         "evidence_mix": final_state.get("evidence_mix"),
@@ -406,6 +566,8 @@ def create_evaluation(
                     "idea_title": final_state.get("idea_title") or meta.get("idea_title"),
                     "idea_summary": final_state.get("idea_summary") or meta.get("idea_summary"),
                     "founder_fit_summary": final_state.get("founder_fit_summary") or meta.get("founder_fit_summary"),
+                    "idea_tags": persisted.idea_tags or [],
+                    "idea_folder": persisted.idea_folder,
                     "web_enabled": request.web_enabled,
                     "web_queries_used": final_state.get("web_queries_used", []),
                     "evidence_mix": final_state.get("evidence_mix"),
@@ -426,18 +588,60 @@ def create_evaluation(
 @router.get("")
 def list_evaluations(
     limit: int = 20,
+    tag: str | None = None,
+    folder: str | None = None,
+    q: str | None = None,
+    ai_filter: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     safe_limit = min(max(limit, 1), MAX_HISTORY_LIMIT)
-    rows = (
+    rows_query = (
         db.query(Evaluation)
         .filter(Evaluation.user_id == current_user.id)
         .order_by(desc(Evaluation.created_at))
-        .limit(safe_limit)
-        .all()
     )
-    return [_evaluation_to_payload(row) for row in rows]
+    rows = rows_query.limit(safe_limit).all()
+
+    normalized_tag = tag.strip().lower() if isinstance(tag, str) and tag.strip() else None
+    normalized_folder = folder.strip().lower() if isinstance(folder, str) and folder.strip() else None
+    normalized_query = q.strip().lower() if isinstance(q, str) and q.strip() else None
+    ai_tags: list[str] = []
+    ai_folder: str | None = None
+    if ai_filter and isinstance(q, str) and q.strip():
+        ai_tags, ai_folder = parse_filter_tags(q)
+
+    def matches(row: Evaluation) -> bool:
+        row_tags = [str(item).strip().lower() for item in (row.idea_tags or [])]
+        row_folder = row.idea_folder.strip().lower() if isinstance(row.idea_folder, str) and row.idea_folder.strip() else None
+
+        if normalized_tag and normalized_tag not in row_tags:
+            return False
+        if normalized_folder and normalized_folder != row_folder:
+            return False
+        if ai_tags and not any(tag_item in row_tags for tag_item in ai_tags):
+            return False
+        if ai_folder and row_folder and ai_folder.strip().lower() != row_folder:
+            return False
+        if normalized_query:
+            meta = _extract_meta_from_dimension_analyses(row.dimension_analyses)
+            title = str(meta.get("idea_title") or "").strip().lower()
+            haystack = " ".join(
+                [
+                    str(row.idea_description or "").lower(),
+                    str(row.target_customer or "").lower(),
+                    str(row.problem_statement or "").lower(),
+                    row_folder or "",
+                    " ".join(row_tags),
+                    title,
+                ]
+            )
+            if normalized_query not in haystack and not ai_tags:
+                return False
+        return True
+
+    filtered = [row for row in rows if matches(row)]
+    return [_evaluation_to_payload(row) for row in filtered]
 
 
 @router.get("/{evaluation_id}")

@@ -20,3 +20,7 @@ class EvaluationCreateRequest(BaseModel):
 
 class EvaluationExportRequest(BaseModel):
     chart_image_data_url: str | None = None
+    company_name: str | None = Field(default=None, max_length=80)
+    company_tagline: str | None = Field(default=None, max_length=160)
+    primary_color_hex: str | None = Field(default=None, max_length=7)
+    custom_sections: list[dict[str, str]] | None = None

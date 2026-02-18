@@ -10,6 +10,23 @@ from app.config import settings
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
+KNOWN_IDEA_TAGS = [
+    "b2b",
+    "b2c",
+    "ai agent",
+    "fintech",
+    "healthtech",
+    "edtech",
+    "devtools",
+    "saas",
+    "marketplace",
+    "infra",
+    "cybersecurity",
+    "data",
+    "automation",
+    "sales",
+    "revenue ops",
+]
 
 
 def _extract_json_object(raw: str) -> dict[str, Any] | None:
@@ -213,3 +230,120 @@ def generate_explanatory_summaries(
         "idea_summary": " ".join(idea_summary.strip().split()),
         "founder_fit_summary": " ".join(founder_fit_summary.strip().split()),
     }
+
+
+def _heuristic_tags(text: str, allow_default: bool = True) -> tuple[list[str], str | None]:
+    lowered = text.lower()
+    tags: list[str] = []
+    mapping = {
+        "b2b": ["b2b", "enterprise", "smb", "sales team", "revops"],
+        "b2c": ["b2c", "consumer"],
+        "ai agent": ["ai agent", "agentic", "copilot", "assistant"],
+        "fintech": ["fintech", "payments", "bank", "lending", "compliance"],
+        "healthtech": ["healthtech", "health", "clinic", "ehr", "patient"],
+        "edtech": ["edtech", "learning", "education", "school"],
+        "devtools": ["developer", "devtool", "sdk", "api platform"],
+        "saas": ["saas", "subscription"],
+        "marketplace": ["marketplace", "buyers and sellers"],
+        "infra": ["infrastructure", "infra", "platform"],
+        "cybersecurity": ["security", "cyber", "threat", "identity"],
+        "data": ["data", "analytics", "warehouse", "etl"],
+        "automation": ["automation", "workflow", "orchestration"],
+        "sales": ["sales", "crm", "pipeline", "prospecting"],
+        "revenue ops": ["revops", "revenue operations", "forecasting"],
+    }
+    for tag, keys in mapping.items():
+        if any(key in lowered for key in keys):
+            tags.append(tag)
+    if not tags and allow_default:
+        tags = ["saas"]
+    folder = "General"
+    if "fintech" in tags:
+        folder = "Fintech"
+    elif "healthtech" in tags:
+        folder = "Healthtech"
+    elif "edtech" in tags:
+        folder = "Edtech"
+    elif "ai agent" in tags:
+        folder = "AI Agents"
+    elif "devtools" in tags:
+        folder = "Developer Tools"
+    elif "b2b" in tags:
+        folder = "B2B"
+    elif "b2c" in tags:
+        folder = "B2C"
+    if not tags:
+        return [], None
+    return tags[:6], folder
+
+
+def generate_idea_tags(
+    idea_description: str,
+    target_customer: str | None,
+    problem_statement: str | None,
+    startup_type: str | None,
+    market_type: str | None,
+) -> tuple[list[str], str | None]:
+    payload = {
+        "idea_description": idea_description,
+        "target_customer": target_customer,
+        "problem_statement": problem_statement,
+        "startup_type": startup_type,
+        "market_type": market_type,
+        "known_tags": KNOWN_IDEA_TAGS,
+    }
+    system_prompt = (
+        "You assign startup idea tags for filtering. Return strict JSON with keys: tags (array), folder (string).\n"
+        "Rules: choose 2-6 tags from known_tags when possible; keep tags lowercase and concise; "
+        "folder should be a short category label like B2B, AI Agents, Fintech, DevTools, Healthtech."
+    )
+    parsed = call_openrouter_json(system_prompt, json.dumps(payload))
+    if isinstance(parsed, dict):
+        raw_tags = parsed.get("tags")
+        raw_folder = parsed.get("folder")
+        tags: list[str] = []
+        if isinstance(raw_tags, list):
+            for tag in raw_tags:
+                if isinstance(tag, str):
+                    normalized = " ".join(tag.strip().lower().split())
+                    if normalized and normalized not in tags:
+                        tags.append(normalized)
+        folder = " ".join(raw_folder.strip().split()) if isinstance(raw_folder, str) and raw_folder.strip() else None
+        if tags:
+            return tags[:6], folder
+
+    combined = " ".join(
+        [
+            idea_description or "",
+            target_customer or "",
+            problem_statement or "",
+            startup_type or "",
+            market_type or "",
+        ]
+    )
+    return _heuristic_tags(combined)
+
+
+def parse_filter_tags(filter_query: str) -> tuple[list[str], str | None]:
+    query = " ".join(filter_query.split()).strip()
+    if not query:
+        return [], None
+    system_prompt = (
+        "You map user filter text to startup tags and optional folder. Return strict JSON with keys: tags (array), folder (string|null). "
+        "Tags must be lowercase concise labels."
+    )
+    parsed = call_openrouter_json(system_prompt, json.dumps({"query": query, "known_tags": KNOWN_IDEA_TAGS}))
+    if isinstance(parsed, dict):
+        tags: list[str] = []
+        raw_tags = parsed.get("tags")
+        if isinstance(raw_tags, list):
+            for tag in raw_tags:
+                if isinstance(tag, str):
+                    normalized = " ".join(tag.strip().lower().split())
+                    if normalized and normalized not in tags:
+                        tags.append(normalized)
+        raw_folder = parsed.get("folder")
+        folder = " ".join(raw_folder.strip().split()) if isinstance(raw_folder, str) and raw_folder.strip() else None
+        if tags or folder:
+            return tags[:6], folder
+    return _heuristic_tags(query, allow_default=False)

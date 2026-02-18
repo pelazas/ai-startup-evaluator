@@ -10,6 +10,8 @@ class EvaluationState(TypedDict, total=False):
     startup_type: str | None
     market_type: str | None
     web_enabled: bool
+    idea_tags: list[str]
+    idea_folder: str | None
     profile_data: dict[str, Any]
     evaluation_id: str
 

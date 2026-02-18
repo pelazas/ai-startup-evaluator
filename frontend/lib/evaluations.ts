@@ -14,6 +14,8 @@ export type EvaluationCreatePayload = {
 export type EvaluationResultData = {
   evaluation_id: string;
   created_at?: string | null;
+  idea_tags?: string[];
+  idea_folder?: string | null;
   status: "completed" | "partial" | "failed" | "pending";
   overall_score: number | null;
   verdict: "GO" | "CONDITIONAL" | "NO-GO" | null;
@@ -64,6 +66,10 @@ export type StoredEvaluation = {
 
 export type EvaluationPdfExportPayload = {
   chart_image_data_url?: string;
+  company_name?: string;
+  company_tagline?: string;
+  primary_color_hex?: string;
+  custom_sections?: Array<{ title: string; content: string }>;
 };
 
 const HISTORY_KEY = "evaluation_history_v1";
@@ -185,6 +191,37 @@ export async function fetchEvaluationById(id: string): Promise<EvaluationResultD
 export async function fetchEvaluationsList(): Promise<EvaluationResultData[] | null> {
   try {
     const data = await apiRequest<EvaluationResultData[]>("/api/evaluations", { method: "GET" });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchEvaluationsFiltered(params: {
+  limit?: number;
+  tag?: string;
+  folder?: string;
+  q?: string;
+  ai_filter?: boolean;
+}): Promise<EvaluationResultData[] | null> {
+  const search = new URLSearchParams();
+  if (typeof params.limit === "number") {
+    search.set("limit", String(params.limit));
+  }
+  if (params.tag) {
+    search.set("tag", params.tag);
+  }
+  if (params.folder) {
+    search.set("folder", params.folder);
+  }
+  if (params.q) {
+    search.set("q", params.q);
+  }
+  if (params.ai_filter) {
+    search.set("ai_filter", "true");
+  }
+  try {
+    const data = await apiRequest<EvaluationResultData[]>(`/api/evaluations?${search.toString()}`, { method: "GET" });
     return data;
   } catch {
     return null;
