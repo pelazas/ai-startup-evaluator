@@ -367,8 +367,24 @@ def critic_node(state: EvaluationState) -> EvaluationState:
     else:
         top_risks = ["Insufficient structured risk output from critic."]
 
-    low_confidence = bool(critic_result.get("low_confidence")) or unavailable_count > 0
-    if len(state.get("retrieved_chunks", [])) < 20:
+    retrieved_chunks = state.get("retrieved_chunks", [])
+    if not isinstance(retrieved_chunks, list):
+        retrieved_chunks = []
+    per_dimension_counts = [
+        len(value)
+        for value in dimension_evidence_map.values()
+        if isinstance(value, list)
+    ]
+    weakest_dimension_count = min(per_dimension_counts) if per_dimension_counts else 0
+
+    llm_low_confidence = bool(critic_result.get("low_confidence"))
+    low_confidence = unavailable_count > 0
+    if len(retrieved_chunks) < 14:
+        low_confidence = True
+    if weakest_dimension_count < 3:
+        low_confidence = True
+    # Only trust the model's low-confidence signal when supporting evidence coverage is also weak.
+    if llm_low_confidence and (len(retrieved_chunks) < 28 or weakest_dimension_count < 4):
         low_confidence = True
     if parse_diagnostics:
         LOGGER.warning(

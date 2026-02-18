@@ -17,6 +17,7 @@ class EvaluationState(TypedDict, total=False):
 
     structured_idea: dict[str, Any]
     idea_title: str
+    idea_categorization: dict[str, str]
     idea_summary: str
     founder_fit_summary: str
     internal_retrieved_chunks: list[dict[str, Any]]

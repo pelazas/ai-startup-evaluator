@@ -86,6 +86,7 @@ def persist_evaluation_result(
     evaluation.timing_score = dimension_scores["timing"]
     meta = {
         "idea_title": state.get("idea_title"),
+        "idea_categorization": state.get("idea_categorization"),
         "idea_summary": state.get("idea_summary"),
         "founder_fit_summary": state.get("founder_fit_summary"),
     }

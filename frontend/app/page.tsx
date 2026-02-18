@@ -43,7 +43,7 @@ export default function HomePage() {
     if (!isAuthenticated) {
       return;
     }
-    setItems(loadStoredEvaluations().slice(0, 8));
+    setItems(loadStoredEvaluations());
   }, [isAuthenticated]);
 
   if (!isAuthenticated) {

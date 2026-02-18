@@ -13,9 +13,21 @@ export type EvaluationCreatePayload = {
 
 export type EvaluationResultData = {
   evaluation_id: string;
+  idea_description?: string | null;
+  target_customer?: string | null;
+  problem_statement?: string | null;
+  startup_type?: string | null;
+  market_type?: string | null;
   created_at?: string | null;
   idea_tags?: string[];
   idea_folder?: string | null;
+  idea_categorization?: {
+    type?: string;
+    market?: string;
+    target?: string;
+    main_competitor?: string;
+    trend_analysis?: string;
+  } | null;
   status: "completed" | "partial" | "failed" | "pending";
   overall_score: number | null;
   verdict: "GO" | "CONDITIONAL" | "NO-GO" | null;
@@ -70,6 +82,31 @@ export type EvaluationPdfExportPayload = {
   company_tagline?: string;
   primary_color_hex?: string;
   custom_sections?: Array<{ title: string; content: string }>;
+};
+
+export type KeywordTrendPoint = {
+  date: string;
+  value: number;
+};
+
+export type KeywordTrendSeries = {
+  keyword: string;
+  volume: number;
+  latest_volume?: number;
+  growth_percent: number | null;
+  points: KeywordTrendPoint[];
+};
+
+export type EvaluationKeywordTrends = {
+  keywords: string[];
+  selected_keyword?: string | null;
+  series: KeywordTrendSeries[];
+  timeframe?: string;
+  location?: string;
+  source?: string;
+  metric?: string;
+  generated_at?: string;
+  error?: string;
 };
 
 const HISTORY_KEY = "evaluation_history_v1";
@@ -222,6 +259,17 @@ export async function fetchEvaluationsFiltered(params: {
   }
   try {
     const data = await apiRequest<EvaluationResultData[]>(`/api/evaluations?${search.toString()}`, { method: "GET" });
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchEvaluationKeywordTrends(evaluationId: string): Promise<EvaluationKeywordTrends | null> {
+  try {
+    const data = await apiRequest<EvaluationKeywordTrends>(`/api/evaluations/${evaluationId}/keyword-trends`, {
+      method: "GET",
+    });
     return data;
   } catch {
     return null;

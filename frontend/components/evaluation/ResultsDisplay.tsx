@@ -1,10 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { DimensionKey, StoredEvaluation, downloadEvaluationPdf } from "@/lib/evaluations";
+import {
+  DimensionKey,
+  EvaluationKeywordTrends,
+  StoredEvaluation,
+  downloadEvaluationPdf,
+  fetchEvaluationKeywordTrends,
+} from "@/lib/evaluations";
 import { HistoryModal } from "./HistoryModal";
+import { KeywordTrendsChart } from "./KeywordTrendsChart";
 import { RadarChart } from "./RadarChart";
 
 type ResultsDisplayProps = {
@@ -111,6 +118,20 @@ function formatRetrievalMethod(value: string | null | undefined): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractLabeledValue(text: string, label: string): string | null {
+  const pattern = new RegExp(`(?:^|\\n)\\s*(?:[-*]\\s*)?${escapeRegex(label)}\\s*:\\s*(.+)$`, "im");
+  const match = text.match(pattern);
+  if (!match?.[1]) {
+    return null;
+  }
+  const cleaned = match[1].trim().replace(/\s+/g, " ");
+  return cleaned || null;
+}
+
 async function radarChartToDataUrl(): Promise<string | null> {
   const svg = document.querySelector(".radar-svg") as SVGSVGElement | null;
   if (!svg) {
@@ -157,6 +178,10 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(true);
+  const [trendsError, setTrendsError] = useState<string | null>(null);
+  const [trendsData, setTrendsData] = useState<EvaluationKeywordTrends | null>(null);
+  const [selectedTrendKeyword, setSelectedTrendKeyword] = useState<string>("");
 
   const scores = evaluation.result.dimension_scores ?? {
     market: null,
@@ -289,12 +314,68 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
     return `Founder-Idea Fit scored ${founderScore}/100 based on the available profile and evidence.`;
   }, [evaluation.result.founder_fit_summary, scores.founder_fit]);
 
+  const ideaCategorization = useMemo(() => {
+    const description = evaluation.idea_input.idea_description ?? "";
+    const aiCategorization = evaluation.result.idea_categorization ?? {};
+    const type = aiCategorization.type ?? evaluation.idea_input.startup_type ?? extractLabeledValue(description, "Type");
+    const market = aiCategorization.market ?? evaluation.idea_input.market_type ?? extractLabeledValue(description, "Market");
+    const target = aiCategorization.target ?? evaluation.idea_input.target_customer ?? extractLabeledValue(description, "Target");
+    const mainCompetitor = aiCategorization.main_competitor ?? extractLabeledValue(description, "Main Competitor");
+    const trendAnalysis = aiCategorization.trend_analysis ?? extractLabeledValue(description, "Trend Analysis");
+
+    return {
+      type: type?.trim() || "Not specified",
+      market: market?.trim() || "Not specified",
+      target: target?.trim() || "Not specified",
+      mainCompetitor: mainCompetitor?.trim() || "Not specified",
+      trendAnalysis: trendAnalysis?.trim() || "Not specified",
+    };
+  }, [evaluation.idea_input.idea_description, evaluation.idea_input.market_type, evaluation.idea_input.startup_type, evaluation.idea_input.target_customer]);
+
   const confidenceMessage = useMemo(() => {
     if (!evaluation.result.low_confidence) {
       return null;
     }
     return "Confidence is reduced because evidence quality or coverage was limited in one or more dimensions.";
   }, [evaluation.result.low_confidence]);
+
+  const selectedTrendSeries = useMemo(() => {
+    if (!trendsData?.series?.length) {
+      return null;
+    }
+    return (
+      trendsData.series.find((item) => item.keyword === selectedTrendKeyword) ??
+      trendsData.series[0]
+    );
+  }, [selectedTrendKeyword, trendsData?.series]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadKeywordTrends() {
+      setTrendsLoading(true);
+      setTrendsError(null);
+      const data = await fetchEvaluationKeywordTrends(evaluation.id);
+      if (!active) {
+        return;
+      }
+      if (!data) {
+        setTrendsError("Unable to load Google keyword trend data.");
+        setTrendsLoading(false);
+        return;
+      }
+      setTrendsData(data);
+      if (data.error) {
+        setTrendsError(data.error);
+      }
+      const defaultKeyword = data.selected_keyword ?? data.keywords?.[0] ?? data.series?.[0]?.keyword ?? "";
+      setSelectedTrendKeyword(defaultKeyword);
+      setTrendsLoading(false);
+    }
+    void loadKeywordTrends();
+    return () => {
+      active = false;
+    };
+  }, [evaluation.id]);
 
   async function handleDownloadPdf() {
     setPdfError(null);
@@ -383,19 +464,82 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
       </section>
 
       <section className="results-grid">
-        <div className="results-panel">
-          <h3>Scoring Profile</h3>
-          <RadarChart scores={scores} />
+        <div className="results-panel results-panel-score">
+          <h3 className="results-panel-title-centered">Scoring Profile</h3>
+          <div className="scoring-profile-center">
+            <RadarChart scores={scores} />
+          </div>
         </div>
 
-        <div className="results-panel">
+        <div className="results-panel results-panel-risks">
           <h3>Top 3 Critical Risks</h3>
-          <ul>
-            {(evaluation.result.top_risks ?? []).slice(0, 3).map((risk) => (
-              <li key={risk}>{risk}</li>
+          <div className="risk-cards">
+            {(evaluation.result.top_risks ?? []).slice(0, 3).map((risk, index) => (
+              <div key={risk} className="risk-card">
+                <span className="risk-card-index">Risk {index + 1}</span>
+                <p>{risk}</p>
+              </div>
             ))}
-          </ul>
+            {!(evaluation.result.top_risks ?? []).length ? (
+              <p className="form-note">No explicit critical risks were returned in this run.</p>
+            ) : null}
+          </div>
         </div>
+      </section>
+
+      <section className="results-section">
+        <h3>Idea Categorization</h3>
+        <div className="categorization-grid">
+          <div className="categorization-item categorization-type">
+            <span className="categorization-label">Type</span>
+            <span>{ideaCategorization.type}</span>
+          </div>
+          <div className="categorization-item categorization-market">
+            <span className="categorization-label">Market</span>
+            <span>{ideaCategorization.market}</span>
+          </div>
+          <div className="categorization-item categorization-target">
+            <span className="categorization-label">Target</span>
+            <span>{ideaCategorization.target}</span>
+          </div>
+          <div className="categorization-item categorization-competitor">
+            <span className="categorization-label">Main Competitor</span>
+            <span>{ideaCategorization.mainCompetitor}</span>
+          </div>
+          <div className="categorization-item categorization-item-wide categorization-trend">
+            <span className="categorization-label">Trend Analysis</span>
+            <span>{ideaCategorization.trendAnalysis}</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="results-section">
+        <h3>Keyword Trend Volume</h3>
+        {trendsLoading ? <p className="form-note">Loading keyword trends...</p> : null}
+        {!trendsLoading && trendsError ? <p className="form-note">{trendsError}</p> : null}
+        {!trendsLoading && !trendsError && trendsData?.keywords?.length ? (
+          <>
+            <label className="keyword-select-label">
+              Keyword
+              <select
+                value={selectedTrendKeyword}
+                onChange={(event) => setSelectedTrendKeyword(event.target.value)}
+                className="keyword-select"
+              >
+                {trendsData.keywords.map((keyword) => (
+                  <option key={keyword} value={keyword}>
+                    {keyword}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedTrendSeries ? <KeywordTrendsChart series={selectedTrendSeries} /> : null}
+            <p className="form-note">
+              Source: Web search ({trendsData.source ?? "web_search"}) · {trendsData.location ?? "worldwide"} ·{" "}
+              {trendsData.timeframe ?? "past year"}. Values are absolute mention counts, not a 0-100 index.
+            </p>
+          </>
+        ) : null}
       </section>
 
       <section className="results-section">

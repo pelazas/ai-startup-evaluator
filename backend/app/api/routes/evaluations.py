@@ -23,6 +23,7 @@ from app.services.evaluation_service import (
     persist_evaluation_result,
     run_evaluation_graph_stream,
 )
+from app.services.keyword_trends_service import build_google_keyword_trends
 from app.services.profile_service import get_profile_by_user_id
 from app.utils.llm import parse_filter_tags
 
@@ -85,6 +86,11 @@ def _evaluation_to_payload(evaluation: Evaluation) -> dict:
     meta = _extract_meta_from_dimension_analyses(evaluation.dimension_analyses)
     return {
         "evaluation_id": evaluation.id,
+        "idea_description": evaluation.idea_description,
+        "target_customer": evaluation.target_customer,
+        "problem_statement": evaluation.problem_statement,
+        "startup_type": evaluation.startup_type,
+        "market_type": evaluation.market_type,
         "status": evaluation.status,
         "overall_score": evaluation.overall_score,
         "verdict": evaluation.verdict,
@@ -94,6 +100,7 @@ def _evaluation_to_payload(evaluation: Evaluation) -> dict:
         "top_risks": evaluation.top_risks,
         "evidence_sources": evaluation.evidence_sources,
         "idea_title": meta.get("idea_title"),
+        "idea_categorization": meta.get("idea_categorization"),
         "idea_summary": meta.get("idea_summary"),
         "founder_fit_summary": meta.get("founder_fit_summary"),
         "idea_tags": evaluation.idea_tags or [],
@@ -526,6 +533,7 @@ def create_evaluation(
                         "top_risks": persisted.top_risks,
                         "evidence_sources": persisted.evidence_sources,
                         "idea_title": final_state.get("idea_title") or meta.get("idea_title"),
+                        "idea_categorization": final_state.get("idea_categorization") or meta.get("idea_categorization"),
                         "idea_summary": final_state.get("idea_summary") or meta.get("idea_summary"),
                         "founder_fit_summary": final_state.get("founder_fit_summary") or meta.get("founder_fit_summary"),
                         "idea_tags": persisted.idea_tags or [],
@@ -564,6 +572,7 @@ def create_evaluation(
                     "top_risks": persisted.top_risks,
                     "evidence_sources": persisted.evidence_sources,
                     "idea_title": final_state.get("idea_title") or meta.get("idea_title"),
+                    "idea_categorization": final_state.get("idea_categorization") or meta.get("idea_categorization"),
                     "idea_summary": final_state.get("idea_summary") or meta.get("idea_summary"),
                     "founder_fit_summary": final_state.get("founder_fit_summary") or meta.get("founder_fit_summary"),
                     "idea_tags": persisted.idea_tags or [],
@@ -659,6 +668,31 @@ def get_evaluation(
     if evaluation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation not found.")
     return _evaluation_to_payload(evaluation)
+
+
+@router.get("/{evaluation_id}/keyword-trends")
+def get_evaluation_keyword_trends(
+    evaluation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    evaluation = (
+        db.query(Evaluation)
+        .filter(Evaluation.id == evaluation_id, Evaluation.user_id == current_user.id)
+        .order_by(desc(Evaluation.created_at))
+        .first()
+    )
+    if evaluation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evaluation not found.")
+
+    payload = build_google_keyword_trends(
+        idea_description=evaluation.idea_description,
+        target_customer=evaluation.target_customer,
+        problem_statement=evaluation.problem_statement,
+        startup_type=evaluation.startup_type,
+        market_type=evaluation.market_type,
+    )
+    return payload
 
 
 @router.post("/{evaluation_id}/export")

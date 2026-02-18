@@ -8,13 +8,13 @@ from ..state import EvaluationState
 
 DIMENSION_ORDER = ("market", "technical", "distribution", "founder_fit", "timing")
 DIMENSION_MIX_RULES: dict[str, list[tuple[str, int]]] = {
-    "market": [("ai_market_data", 2), ("web", 2), ("startup_examples", 1)],
-    "technical": [("technical_constraints", 3), ("web", 1), ("founder_principles", 1)],
-    "distribution": [("startup_examples", 2), ("founder_principles", 1), ("web", 2), ("ai_market_data", 1)],
-    "founder_fit": [("personal_profile", 2), ("founder_principles", 2), ("web", 1)],
-    "timing": [("ai_market_data", 2), ("web", 2), ("technical_constraints", 1)],
+    "market": [("ai_market_data", 3), ("web", 3), ("startup_examples", 2)],
+    "technical": [("technical_constraints", 4), ("web", 2), ("founder_principles", 1)],
+    "distribution": [("startup_examples", 3), ("founder_principles", 1), ("web", 3), ("ai_market_data", 1)],
+    "founder_fit": [("personal_profile", 2), ("founder_principles", 3), ("web", 2)],
+    "timing": [("ai_market_data", 3), ("web", 3), ("technical_constraints", 2)],
 }
-DIMENSION_TARGET = 5
+DIMENSION_TARGET = 7
 
 
 def _build_web_queries(state: EvaluationState) -> list[str]:
@@ -142,6 +142,18 @@ def _count_cross_dimension_reuse(evidence_map: dict[str, list[dict[str, Any]]]) 
     return sum(1 for value in counts.values() if value > 1)
 
 
+def _dimension_coverage_low_confidence(evidence_map: dict[str, list[dict[str, Any]]], diversified_chunks: list[dict[str, Any]]) -> bool:
+    if len(diversified_chunks) < 10:
+        return True
+    if not evidence_map:
+        return True
+    per_dimension_counts = [len(chunks) for chunks in evidence_map.values()]
+    if not per_dimension_counts:
+        return True
+    # Require at least 3 sources per dimension for acceptable confidence.
+    return min(per_dimension_counts) < 3
+
+
 def _flatten_dimension_evidence_map(evidence_map: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     ordered: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -168,6 +180,7 @@ def web_retrieval_node(state: EvaluationState) -> EvaluationState:
         evidence_map = _build_dimension_evidence_map(internal_chunks)
         diversified_chunks = _flatten_dimension_evidence_map(evidence_map)
         parse_diagnostics.append(f"cross_dimension_reused_sources:{_count_cross_dimension_reuse(evidence_map)}")
+        low_confidence = _dimension_coverage_low_confidence(evidence_map, diversified_chunks)
         return {
             "internal_retrieved_chunks": internal_chunks,
             "web_retrieved_chunks": [],
@@ -175,6 +188,7 @@ def web_retrieval_node(state: EvaluationState) -> EvaluationState:
             "dimension_evidence_map": evidence_map,
             "retrieved_chunks": diversified_chunks,
             "parse_diagnostics": parse_diagnostics,
+            "low_confidence": low_confidence,
         }
 
     queries = _build_web_queries(state)
@@ -193,7 +207,7 @@ def web_retrieval_node(state: EvaluationState) -> EvaluationState:
     evidence_map = _build_dimension_evidence_map(merged)
     diversified_chunks = _flatten_dimension_evidence_map(evidence_map)
     parse_diagnostics.append(f"cross_dimension_reused_sources:{_count_cross_dimension_reuse(evidence_map)}")
-    low_confidence = len(diversified_chunks) < 20
+    low_confidence = _dimension_coverage_low_confidence(evidence_map, diversified_chunks)
     return {
         "internal_retrieved_chunks": internal_chunks,
         "web_retrieved_chunks": web_chunks,

@@ -157,12 +157,74 @@ def generate_idea_title(idea_description: str, target_customer: str | None, prob
     return _fallback_idea_title(idea_description)
 
 
+def generate_idea_categorization(
+    idea_description: str,
+    target_customer: str | None,
+    problem_statement: str | None,
+    startup_type: str | None,
+    market_type: str | None,
+) -> dict[str, str]:
+    system_prompt = (
+        "You categorize startup ideas. Return strict JSON with keys: "
+        "type, market, target, main_competitor, trend_analysis. "
+        "Keep values concise and specific."
+    )
+    user_prompt = json.dumps(
+        {
+            "idea_description": idea_description,
+            "target_customer": target_customer,
+            "problem_statement": problem_statement,
+            "startup_type": startup_type,
+            "market_type": market_type,
+        }
+    )
+    parsed = call_openrouter_json(system_prompt, user_prompt)
+    defaults = {
+        "type": startup_type or "Not specified",
+        "market": market_type or "Not specified",
+        "target": target_customer or "Not specified",
+        "main_competitor": "Not specified",
+        "trend_analysis": "Not specified",
+    }
+    if not isinstance(parsed, dict):
+        return defaults
+
+    result = dict(defaults)
+    for key in result:
+        value = parsed.get(key)
+        if isinstance(value, str):
+            cleaned = " ".join(value.strip().split())
+            if cleaned:
+                result[key] = cleaned[:320]
+    return result
+
+
 def evaluate_with_critic(
     structured_idea: dict[str, Any],
     profile_data: dict[str, Any],
     retrieved_chunks: list[dict[str, Any]],
     dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    def compact_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
+        metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+        content = str(chunk.get("content") or "").replace("\n", " ").strip()
+        return {
+            "id": chunk.get("id"),
+            "collection": chunk.get("collection"),
+            "title": chunk.get("title") or metadata.get("title"),
+            "source": chunk.get("source") or metadata.get("source"),
+            "source_url": metadata.get("source_url"),
+            "retrieval_method": chunk.get("retrieval_method"),
+            "content_excerpt": content[:320],
+        }
+
+    compact_retrieved = [compact_chunk(chunk) for chunk in retrieved_chunks[:40] if isinstance(chunk, dict)]
+    compact_dimension_map = {
+        key: [compact_chunk(chunk) for chunk in value[:8] if isinstance(chunk, dict)]
+        for key, value in (dimension_evidence_map or {}).items()
+        if isinstance(value, list)
+    }
+
     system_prompt = (
         "You are a skeptical startup evaluator. Score exactly 5 dimensions: "
         "market, technical, distribution, founder_fit, timing. Return JSON with keys: "
@@ -173,10 +235,8 @@ def evaluate_with_critic(
         {
             "structured_idea": structured_idea,
             "profile_data": profile_data,
-            "retrieved_chunks": retrieved_chunks[:30],
-            "dimension_evidence_map": {
-                key: value[:6] for key, value in (dimension_evidence_map or {}).items() if isinstance(value, list)
-            },
+            "retrieved_chunks": compact_retrieved,
+            "dimension_evidence_map": compact_dimension_map,
         }
     )
     parsed = call_openrouter_json(system_prompt, user_prompt)
@@ -351,3 +411,74 @@ def parse_filter_tags(filter_query: str) -> tuple[list[str], str | None]:
         if tags or folder:
             return tags[:6], folder
     return _heuristic_tags(query, allow_default=False)
+
+
+def generate_search_keywords(
+    idea_description: str,
+    target_customer: str | None,
+    problem_statement: str | None,
+    startup_type: str | None,
+    market_type: str | None,
+) -> list[str]:
+    payload = {
+        "idea_description": idea_description,
+        "target_customer": target_customer,
+        "problem_statement": problem_statement,
+        "startup_type": startup_type,
+        "market_type": market_type,
+    }
+    system_prompt = (
+        "You generate high-intent Google search keywords for startup demand validation.\n"
+        "Return strict JSON with key: keywords (array of strings).\n"
+        "Rules:\n"
+        "- Return 3 to 5 concise keywords.\n"
+        "- Use phrases users actually search for.\n"
+        "- Avoid generic terms like startup, ai, platform unless qualified.\n"
+        "- Prefer customer problem and use-case language."
+    )
+    parsed = call_openrouter_json(system_prompt, json.dumps(payload))
+    if isinstance(parsed, dict):
+        raw_keywords = parsed.get("keywords")
+        if isinstance(raw_keywords, list):
+            cleaned: list[str] = []
+            for item in raw_keywords:
+                if not isinstance(item, str):
+                    continue
+                value = " ".join(item.strip().lower().split())
+                if len(value) < 4:
+                    continue
+                if value not in cleaned:
+                    cleaned.append(value)
+            if cleaned:
+                return cleaned[:5]
+
+    fallback_parts = [
+        startup_type or "",
+        market_type or "",
+        target_customer or "",
+        problem_statement or "",
+        idea_description[:200],
+    ]
+    blob = " ".join(part for part in fallback_parts if part).lower()
+    candidates: list[str] = []
+    for phrase in (
+        "public procurement tenders",
+        "bid automation software",
+        "proposal generation software",
+        "tender analysis tool",
+        "government contract bidding software",
+        "workflow automation software",
+        "ai procurement assistant",
+    ):
+        if phrase in blob and phrase not in candidates:
+            candidates.append(phrase)
+
+    if not candidates:
+        words = [token for token in re.split(r"[^a-z0-9]+", blob) if len(token) > 3]
+        for idx in range(0, max(0, len(words) - 2)):
+            phrase = " ".join(words[idx : idx + 3]).strip()
+            if phrase and phrase not in candidates:
+                candidates.append(phrase)
+            if len(candidates) >= 5:
+                break
+    return candidates[:5]

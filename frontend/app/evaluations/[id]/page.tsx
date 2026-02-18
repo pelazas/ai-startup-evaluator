@@ -44,7 +44,13 @@ export default function EvaluationResultPage() {
           id: remote.evaluation_id,
           created_at: new Date().toISOString(),
           status: remote.status,
-          idea_input: local?.idea_input ?? { idea_description: "Loaded from server" },
+          idea_input: local?.idea_input ?? {
+            idea_description: remote.idea_description ?? "Loaded from server",
+            target_customer: remote.target_customer ?? null,
+            problem_statement: remote.problem_statement ?? null,
+            startup_type: remote.startup_type ?? null,
+            market_type: remote.market_type ?? null,
+          },
           result: remote,
         };
         upsertStoredEvaluation(normalized);
@@ -83,4 +89,3 @@ export default function EvaluationResultPage() {
 
   return <ResultsDisplay evaluation={evaluation} history={history} />;
 }
-

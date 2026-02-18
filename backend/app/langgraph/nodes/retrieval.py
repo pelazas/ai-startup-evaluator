@@ -12,6 +12,25 @@ from ..state import EvaluationState
 LOGGER = logging.getLogger(__name__)
 
 
+def _normalize_collection_name(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if text.endswith("_docs"):
+        text = text[: -len("_docs")]
+    return text
+
+
+def _internal_retrieval_low_confidence(chunks: list[dict]) -> bool:
+    if len(chunks) < 10:
+        return True
+    collections = {
+        _normalize_collection_name(chunk.get("collection"))
+        for chunk in chunks
+        if isinstance(chunk, dict) and _normalize_collection_name(chunk.get("collection"))
+    }
+    # We expect coverage across multiple collections for robust critic context.
+    return len(collections) < 3
+
+
 def retrieval_node(state: EvaluationState, db: Session) -> EvaluationState:
     query_text = " ".join(
         [
@@ -22,7 +41,7 @@ def retrieval_node(state: EvaluationState, db: Session) -> EvaluationState:
     ).strip()
     query_embedding = embed_text(query_text)
     try:
-        chunks = hybrid_search_all_collections(db=db, embedding=query_embedding, keyword_text=query_text, per_collection_limit=10)
+        chunks = hybrid_search_all_collections(db=db, embedding=query_embedding, keyword_text=query_text, per_collection_limit=14)
     except Exception as exc:  # pragma: no cover
         LOGGER.exception("Internal retrieval failed for evaluation_id=%s", state.get("evaluation_id"))
         diagnostics = list(state.get("parse_diagnostics", []))
@@ -36,7 +55,7 @@ def retrieval_node(state: EvaluationState, db: Session) -> EvaluationState:
             "parse_diagnostics": diagnostics,
         }
 
-    low_confidence = len(chunks) < 20
+    low_confidence = _internal_retrieval_low_confidence(chunks)
     return {
         "internal_retrieved_chunks": chunks,
         "web_retrieved_chunks": [],

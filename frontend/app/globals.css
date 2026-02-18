@@ -326,6 +326,119 @@ button:disabled {
   background: #ffffff;
 }
 
+.keyword-select-label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 10px;
+}
+
+.keyword-select {
+  max-width: 360px;
+}
+
+.keyword-trends-chart-wrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  position: relative;
+}
+
+.keyword-trends-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.keyword-trends-chip {
+  display: grid;
+  gap: 1px;
+  border: 1px solid #dbe3ee;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 6px 8px;
+  min-width: 106px;
+}
+
+.keyword-trends-chip-primary {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.keyword-trends-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  display: inline-block;
+  margin-bottom: 2px;
+}
+
+.keyword-trends-chip strong {
+  font-size: 15px;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.keyword-trends-chip span {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.keyword-trends-chip .positive-growth {
+  color: #059669;
+}
+
+.keyword-trends-chart {
+  width: 100%;
+  height: auto;
+}
+
+.trend-axis {
+  stroke: #cbd5e1;
+  stroke-width: 1;
+}
+
+.trend-line {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 2.4;
+}
+
+.trend-area {
+  fill: rgba(37, 99, 235, 0.16);
+}
+
+.trend-point {
+  fill: #2563eb;
+  cursor: pointer;
+}
+
+.trend-cursor {
+  stroke: #94a3b8;
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.trend-tooltip-bg {
+  fill: #0f172a;
+  opacity: 0.95;
+}
+
+.trend-tooltip-text {
+  fill: #e2e8f0;
+  font-size: 10px;
+}
+
+.trend-tooltip-value {
+  fill: #ffffff;
+  font-weight: 700;
+}
+
 .profile-section h3 {
   margin: 0;
   font-size: 17px;
@@ -558,6 +671,54 @@ textarea {
   margin-top: 0;
 }
 
+.results-panel-score {
+  background: radial-gradient(circle at top, #f8fbff 0%, #ffffff 62%);
+}
+
+.results-panel-title-centered {
+  text-align: center;
+}
+
+.scoring-profile-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 360px;
+}
+
+.results-panel-risks {
+  background: linear-gradient(180deg, #fffdfd 0%, #fff8f8 100%);
+}
+
+.risk-cards {
+  display: grid;
+  gap: 10px;
+}
+
+.risk-card {
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff1f2 0%, #ffe4e6 100%);
+  padding: 10px 12px;
+}
+
+.risk-card-index {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+}
+
+.risk-card p {
+  margin: 8px 0 0;
+  color: #7f1d1d;
+  line-height: 1.4;
+}
+
 .diagnostics-section {
   background: #fff7ed;
   border: 1px solid #fed7aa;
@@ -573,6 +734,60 @@ textarea {
 
 .diagnostic-list li + li {
   margin-top: 6px;
+}
+
+.categorization-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.categorization-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.categorization-type {
+  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+  border-color: #c7ddff;
+}
+
+.categorization-market {
+  background: linear-gradient(180deg, #f7fef9 0%, #ebfaef 100%);
+  border-color: #bfe8c9;
+}
+
+.categorization-target {
+  background: linear-gradient(180deg, #fffaf2 0%, #fff3e1 100%);
+  border-color: #f2d5a6;
+}
+
+.categorization-competitor {
+  background: linear-gradient(180deg, #fff6fb 0%, #ffeaf4 100%);
+  border-color: #f0bfd4;
+}
+
+.categorization-trend {
+  background: linear-gradient(180deg, #f7f8ff 0%, #eceeff 100%);
+  border-color: #cfd4ff;
+}
+
+.categorization-item-wide {
+  grid-column: 1 / -1;
+}
+
+.categorization-label {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #64748b;
+  font-weight: 600;
 }
 
 .collapsible {
@@ -607,7 +822,7 @@ textarea {
 .radar-wrap {
   position: relative;
   width: fit-content;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .radar-svg {
@@ -884,6 +1099,10 @@ textarea {
   }
 
   .results-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .categorization-grid {
     grid-template-columns: 1fr;
   }
 }
