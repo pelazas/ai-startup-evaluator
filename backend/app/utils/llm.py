@@ -161,6 +161,7 @@ def evaluate_with_critic(
     structured_idea: dict[str, Any],
     profile_data: dict[str, Any],
     retrieved_chunks: list[dict[str, Any]],
+    dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     system_prompt = (
         "You are a skeptical startup evaluator. Score exactly 5 dimensions: "
@@ -173,6 +174,9 @@ def evaluate_with_critic(
             "structured_idea": structured_idea,
             "profile_data": profile_data,
             "retrieved_chunks": retrieved_chunks[:30],
+            "dimension_evidence_map": {
+                key: value[:6] for key, value in (dimension_evidence_map or {}).items() if isinstance(value, list)
+            },
         }
     )
     parsed = call_openrouter_json(system_prompt, user_prompt)

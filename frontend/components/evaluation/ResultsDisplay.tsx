@@ -154,7 +154,7 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<DimensionKey | null>(null);
   const [showAllHistory, setShowAllHistory] = useState(false);
-  const [showAllSources, setShowAllSources] = useState(false);
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
@@ -167,8 +167,8 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
   };
 
   const recent = useMemo(() => history.slice(0, 5), [history]);
+  const previewHistory = useMemo(() => recent.slice(0, 2), [recent]);
   const sources = useMemo(() => evaluation.result.evidence_sources ?? [], [evaluation.result.evidence_sources]);
-  const visibleSources = useMemo(() => (showAllSources ? sources : sources.slice(0, 8)), [showAllSources, sources]);
 
   const failedDimensions = useMemo(() => {
     if (evaluation.result.failed_dimensions?.length) {
@@ -446,87 +446,62 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
 
       <section className="results-section">
         <h3>Sources Used</h3>
-        <div className="source-explainer">
-          <p>
-            The critic consulted <strong>{sources.length}</strong> unique resources: <strong>{internalSourceCount}</strong> internal and{" "}
-            <strong>{webSourceCount}</strong> from web retrieval.
-          </p>
-          <p>Each source card explains why it was used, what it supports, and how it was retrieved.</p>
+        <div className="sources-compact">
+          <div className="sources-compact-title">
+            <strong>{sources.length} unique sources consulted</strong>
+            <span className="form-note">
+              {internalSourceCount} internal · {webSourceCount} web
+            </span>
+          </div>
+          {sources.length ? (
+            <button type="button" className="button-muted sources-toggle" onClick={() => setSourcesExpanded((prev) => !prev)}>
+              {sourcesExpanded ? "Hide files" : "Show files"}
+            </button>
+          ) : null}
         </div>
 
-        {evaluation.result.evidence_mix ? (
-          <p className="form-note">
-            Internal: {evaluation.result.evidence_mix.internal_sources ?? 0} · Web: {evaluation.result.evidence_mix.web_sources ?? 0} · Total:{" "}
-            {evaluation.result.evidence_mix.total_sources ?? 0}
-          </p>
+        {sourcesExpanded ? (
+          <div className="sources-list">
+            {sources.map((source, index) => {
+              const title = source.doc_name ?? source.title ?? "Untitled source";
+              const collection = source.collection ?? "unknown";
+              const sourceLabel = source.source_name ?? source.source ?? null;
+              return (
+                <article key={`${source.chunk_id ?? `${title}-${collection}`}-${index}`} className="source-file-row">
+                  <div className="source-file-main">
+                    <strong>{title}</strong>
+                    <span className="source-collection">{collection}</span>
+                  </div>
+                  <div className="source-file-meta">
+                    <span>{formatRetrievalMethod(source.retrieval_method)}</span>
+                    {source.source_url ? (
+                      <a href={source.source_url} target="_blank" rel="noreferrer" className="source-link">
+                        Open source
+                      </a>
+                    ) : sourceLabel ? (
+                      <span>{sourceLabel}</span>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         ) : null}
 
-        <p className="form-note">
-          Mode: {evaluation.result.web_enabled === false ? "Internal corpus only" : "Hybrid (internal + web)"}
-        </p>
-
-        {evaluation.result.web_queries_used?.length ? (
-          <p className="form-note">Web queries: {evaluation.result.web_queries_used.join(" | ")}</p>
-        ) : null}
-
-        <p className="form-note">{sources.length} unique sources used.</p>
-
-        <div className="sources-list">
-          {visibleSources.map((source, index) => {
-            const title = source.title ?? source.doc_name ?? "Untitled source";
-            const collection = source.collection ?? "unknown";
-            const snippet = source.snippet ?? null;
-            return (
-              <article key={`${source.chunk_id ?? `${title}-${collection}`}-${index}`} className="source-card">
-                <div className="source-card-header">
-                  <strong>{title}</strong>
-                  <span className="source-collection">{collection}</span>
-                </div>
-                {source.source_url ? (
-                  <a href={source.source_url} target="_blank" rel="noreferrer" className="source-link">
-                    {source.source_name ?? "Open source"}
-                  </a>
-                ) : source.source_name || source.source ? (
-                  <p className="source-meta">{source.source_name ?? source.source}</p>
-                ) : null}
-                <p className="source-meta">
-                  <strong>Retrieved via:</strong> {formatRetrievalMethod(source.retrieval_method)}
-                </p>
-                {source.why_relevant ? (
-                  <p className="source-meta">
-                    <strong>Why used:</strong> {source.why_relevant}
-                  </p>
-                ) : null}
-                {source.supporting_dimensions?.length ? (
-                  <p className="source-meta">
-                    <strong>Supports:</strong> {source.supporting_dimensions.join(", ")}
-                  </p>
-                ) : null}
-                {snippet ? <p className="source-snippet">{snippet}</p> : null}
-              </article>
-            );
-          })}
-          {!sources.length ? <p className="form-note">No evidence sources were captured.</p> : null}
-        </div>
-
-        {sources.length > 8 ? (
-          <button type="button" className="button-muted" onClick={() => setShowAllSources((prev) => !prev)}>
-            {showAllSources ? "Show fewer sources" : `Show all sources (${sources.length})`}
-          </button>
-        ) : null}
+        {!sources.length ? <p className="form-note">No evidence sources were captured.</p> : null}
       </section>
 
       <section className="results-section">
         <h3>Previous Evaluations</h3>
         <div className="history-preview">
-          {recent.map((item) => (
+          {previewHistory.map((item, index) => (
             <button
               type="button"
               key={item.id}
-              className="history-card"
+              className={`history-card history-card-compact ${index === 1 ? "history-card-faded" : ""}`}
               onClick={() => router.push(`/evaluations/${item.id}`)}
             >
-              <div>{item.idea_input.idea_description.slice(0, 60)}</div>
+              <div className="history-card-title">{item.idea_input.idea_description.slice(0, 52)}</div>
               <div className="history-meta">
                 <span>{item.result.verdict ?? "N/A"}</span>
                 <span>{item.result.overall_score ?? "N/A"}</span>
@@ -536,17 +511,20 @@ export function ResultsDisplay({ evaluation, history }: ResultsDisplayProps) {
           ))}
           {!recent.length ? <p className="form-note">No previous evaluations yet.</p> : null}
         </div>
+      </section>
 
-        {history.length > 5 ? (
+      <div className="results-actions-row">
+        {history.length > 1 ? (
           <button type="button" className="button-muted" onClick={() => setShowAllHistory(true)}>
             View All History
           </button>
-        ) : null}
-      </section>
-
-      <button type="button" onClick={() => router.push("/evaluate")}>
-        Evaluate Another Idea
-      </button>
+        ) : (
+          <span />
+        )}
+        <button type="button" onClick={() => router.push("/evaluate")}>
+          Evaluate Another Idea
+        </button>
+      </div>
 
       {showAllHistory ? (
         <HistoryModal

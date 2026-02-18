@@ -427,7 +427,7 @@ def build_embedding_provider(args: argparse.Namespace) -> EmbeddingProvider:
         api_key = settings.open_router_api_key or os.getenv("OPEN_ROUTER_API_KEY")
         if not api_key:
             raise RuntimeError("OPEN_ROUTER_API_KEY is required for OpenRouter embeddings.")
-        model_name = args.embedding_model or os.getenv("OPENROUTER_EMBEDDING_MODEL") or "cohere/embed-english-v3.0"
+        model_name = args.embedding_model or os.getenv("OPENROUTER_EMBEDDING_MODEL") or "openai/text-embedding-3-small"
         return OpenRouterEmbeddingProvider(api_key=api_key, model_name=model_name)
 
     api_key = settings.cohere_api_key or os.getenv("COHERE_API_KEY")
@@ -445,7 +445,33 @@ def main() -> None:
     else:
         provider = build_embedding_provider(args)
         print(f"[config] provider={args.embedding_provider} model={provider.model_name}")
-        probe = _with_retry("embed probe", lambda: provider.embed_query("dimension probe"))
+        try:
+            probe = _with_retry("embed probe", lambda: provider.embed_query("dimension probe"))
+        except Exception:
+            if args.embedding_provider == "openrouter" and not args.embedding_model:
+                fallback_models = [
+                    "openai/text-embedding-3-small",
+                    "openai/text-embedding-3-large",
+                ]
+                probe = None
+                for fallback_model in fallback_models:
+                    if provider.model_name == fallback_model:
+                        continue
+                    print(f"[warn] OpenRouter embedding probe failed; retrying with model={fallback_model}")
+                    provider = OpenRouterEmbeddingProvider(
+                        api_key=settings.open_router_api_key or os.getenv("OPEN_ROUTER_API_KEY") or "",
+                        model_name=fallback_model,
+                    )
+                    try:
+                        probe = _with_retry("embed probe", lambda: provider.embed_query("dimension probe"))
+                        break
+                    except Exception:
+                        continue
+                if probe is None:
+                    raise
+                print(f"[config] provider={args.embedding_provider} model={provider.model_name}")
+            else:
+                raise
         probe_dim = len(probe)
         if probe_dim != EMBEDDING_DIMENSION:
             print(

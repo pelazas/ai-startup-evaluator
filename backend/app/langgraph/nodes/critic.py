@@ -216,11 +216,21 @@ def _normalize_score_scale(scores: dict[str, int | None]) -> tuple[dict[str, int
     return scores, False
 
 
-def _dimension_context_hint(dimension: str, retrieved_chunks: list[dict[str, Any]]) -> str:
-    if not retrieved_chunks:
+def _dimension_context_hint(
+    dimension: str,
+    retrieved_chunks: list[dict[str, Any]],
+    dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
+) -> str:
+    scoped_chunks = []
+    if isinstance(dimension_evidence_map, dict):
+        scoped = dimension_evidence_map.get(dimension)
+        if isinstance(scoped, list):
+            scoped_chunks = scoped
+    candidates = scoped_chunks or retrieved_chunks
+    if not candidates:
         return "Evidence coverage was limited."
 
-    top = retrieved_chunks[:5]
+    top = candidates[:5]
     collections = [str(chunk.get("collection") or "unknown") for chunk in top]
     dominant = max(set(collections), key=collections.count)
     source = next((chunk for chunk in top if str(chunk.get("collection")) == dominant), top[0])
@@ -241,6 +251,7 @@ def _enrich_missing_rationales(
     analyses: dict[str, dict[str, Any]],
     scores: dict[str, int | None],
     retrieved_chunks: list[dict[str, Any]],
+    dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     enriched = dict(analyses)
     for dimension in DIMENSIONS:
@@ -251,9 +262,12 @@ def _enrich_missing_rationales(
         if needs_fill:
             if isinstance(score, int):
                 score_band = "low" if score < 45 else "moderate" if score < 70 else "strong"
-                generated = f"Score interpreted as {score_band} confidence for this dimension. {_dimension_context_hint(dimension, retrieved_chunks)}"
+                generated = (
+                    f"Score interpreted as {score_band} confidence for this dimension. "
+                    f"{_dimension_context_hint(dimension, retrieved_chunks, dimension_evidence_map)}"
+                )
             else:
-                generated = f"Score unavailable. {_dimension_context_hint(dimension, retrieved_chunks)}"
+                generated = f"Score unavailable. {_dimension_context_hint(dimension, retrieved_chunks, dimension_evidence_map)}"
             enriched[dimension] = {"rationale": generated}
     return enriched
 
@@ -277,10 +291,16 @@ def _validate_strict_dimensions_schema(
 
 
 def critic_node(state: EvaluationState) -> EvaluationState:
+    dimension_evidence_map = (
+        state.get("dimension_evidence_map")
+        if isinstance(state.get("dimension_evidence_map"), dict)
+        else {}
+    )
     critic_result = evaluate_with_critic(
         structured_idea=state.get("structured_idea", {}),
         profile_data=state.get("profile_data", {}),
         retrieved_chunks=state.get("retrieved_chunks", []),
+        dimension_evidence_map=dimension_evidence_map,
     )
 
     dimensions_payload = critic_result.get("dimensions", {})
@@ -311,6 +331,7 @@ def critic_node(state: EvaluationState) -> EvaluationState:
         dimension_analyses,
         dimension_scores,
         state.get("retrieved_chunks", []),
+        dimension_evidence_map,
     )
 
     parse_diagnostics.extend(_validate_strict_dimensions_schema(dimension_scores, dimension_analyses))

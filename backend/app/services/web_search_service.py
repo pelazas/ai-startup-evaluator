@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import requests
+from requests import HTTPError, RequestException, Timeout
 
 from app.config import settings
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_query(query: str) -> str:
@@ -43,19 +46,23 @@ def _to_web_chunk(item: dict[str, Any]) -> dict[str, Any]:
 
 def web_search(query: str, max_results: int | None = None) -> list[dict[str, Any]]:
     if not settings.web_search_enabled:
+        LOGGER.debug("Web search skipped: WEB_SEARCH_ENABLED is false.")
         return []
     if not settings.tavily_api_key:
+        LOGGER.warning("Web search unavailable: TAVILY_API_KEY is not configured.")
         return []
 
     normalized_query = _normalize_query(query)
     if not normalized_query:
+        LOGGER.debug("Web search skipped: empty normalized query.")
         return []
 
+    requested_results = max(1, min(max_results or settings.web_search_max_results, 15))
     payload = {
         "api_key": settings.tavily_api_key,
         "query": normalized_query,
         "search_depth": "advanced",
-        "max_results": max(1, min(max_results or settings.web_search_max_results, 15)),
+        "max_results": requested_results,
         "include_answer": False,
         "include_images": False,
     }
@@ -69,8 +76,57 @@ def web_search(query: str, max_results: int | None = None) -> list[dict[str, Any
         body = response.json()
         results = body.get("results")
         if not isinstance(results, list):
+            LOGGER.warning(
+                "Web search returned unexpected payload shape (missing results list). query=%r status=%s",
+                normalized_query[:120],
+                response.status_code,
+            )
             return []
         chunks = [_to_web_chunk(item) for item in results if isinstance(item, dict)]
-        return [chunk for chunk in chunks if chunk.get("content")]
+        filtered_chunks = [chunk for chunk in chunks if chunk.get("content")]
+        if not filtered_chunks:
+            LOGGER.warning(
+                "Web search returned no usable content. query=%r raw_results=%d requested_results=%d",
+                normalized_query[:120],
+                len(results),
+                requested_results,
+            )
+        else:
+            LOGGER.info(
+                "Web search success. query=%r usable_results=%d raw_results=%d",
+                normalized_query[:120],
+                len(filtered_chunks),
+                len(results),
+            )
+        return filtered_chunks
+    except Timeout:
+        LOGGER.exception(
+            "Web search timeout. query=%r timeout_seconds=%d",
+            normalized_query[:120],
+            max(2, settings.web_search_timeout_seconds),
+        )
+        return []
+    except HTTPError:
+        status_code = getattr(response, "status_code", "unknown") if "response" in locals() else "unknown"
+        response_preview = ""
+        if "response" in locals():
+            try:
+                response_preview = (response.text or "")[:300]
+            except Exception:
+                response_preview = ""
+        LOGGER.exception(
+            "Web search HTTP error. query=%r status=%s body_preview=%r",
+            normalized_query[:120],
+            status_code,
+            response_preview,
+        )
+        return []
+    except RequestException:
+        LOGGER.exception("Web search request error. query=%r", normalized_query[:120])
+        return []
+    except ValueError:
+        LOGGER.exception("Web search JSON decode error. query=%r", normalized_query[:120])
+        return []
     except Exception:
+        LOGGER.exception("Unexpected web search failure. query=%r", normalized_query[:120])
         return []

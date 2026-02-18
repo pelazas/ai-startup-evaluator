@@ -23,6 +23,7 @@ class EvaluationState(TypedDict, total=False):
     web_retrieved_chunks: list[dict[str, Any]]
     web_queries_used: list[str]
     retrieved_chunks: list[dict[str, Any]]
+    dimension_evidence_map: dict[str, list[dict[str, Any]]]
     dimension_scores: dict[str, int | None]
     dimension_analyses: dict[str, dict[str, Any]]
     failed_dimensions: list[str]

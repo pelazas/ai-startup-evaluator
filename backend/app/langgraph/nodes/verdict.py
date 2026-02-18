@@ -43,10 +43,40 @@ def _source_reason(collection: str, retrieval_reason: str | None, title: str) ->
     return f"{reason} Source: {title}."
 
 
-def _build_evidence_sources(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _chunk_match_key(chunk: dict[str, Any], collection: str, title: str) -> str:
+    chunk_id = _clean_text(chunk.get("id"))
+    if chunk_id:
+        return f"id::{chunk_id}"
+    return f"title::{collection}::{title.lower()}"
+
+
+def _build_evidence_sources(
+    chunks: list[dict[str, Any]],
+    dimension_evidence_map: dict[str, list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
     seen_chunk_ids: set[str] = set()
     seen_title_collection: set[tuple[str, str]] = set()
+    source_dimensions: dict[str, set[str]] = {}
+
+    if isinstance(dimension_evidence_map, dict):
+        for dimension, scoped_chunks in dimension_evidence_map.items():
+            if not isinstance(scoped_chunks, list):
+                continue
+            for scoped_chunk in scoped_chunks:
+                if not isinstance(scoped_chunk, dict):
+                    continue
+                scoped_metadata = scoped_chunk.get("metadata") if isinstance(scoped_chunk.get("metadata"), dict) else {}
+                scoped_collection = _clean_text(scoped_chunk.get("collection")) or "unknown"
+                scoped_title = (
+                    _clean_text(scoped_chunk.get("title"))
+                    or _clean_text(scoped_metadata.get("title"))
+                    or _clean_text(scoped_metadata.get("document_title"))
+                    or _clean_text(scoped_metadata.get("doc_name"))
+                    or "Untitled source"
+                )
+                key = _chunk_match_key(scoped_chunk, scoped_collection, scoped_title)
+                source_dimensions.setdefault(key, set()).add(dimension)
 
     for chunk in chunks:
         metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
@@ -84,7 +114,9 @@ def _build_evidence_sources(chunks: list[dict[str, Any]]) -> list[dict[str, Any]
         if snippet and len(snippet) > 220:
             snippet = f"{snippet[:220].rstrip()}..."
         retrieval_reason = _clean_text(chunk.get("retrieval_reason")) or _clean_text(metadata.get("retrieval_reason"))
-        dimension_hints = COLLECTION_DIMENSION_HINTS.get(collection, [])
+        match_key = _chunk_match_key(chunk, collection, title)
+        mapped_hints = sorted(source_dimensions.get(match_key, set()))
+        dimension_hints = mapped_hints or COLLECTION_DIMENSION_HINTS.get(collection, [])
 
         sources.append(
             {
@@ -287,7 +319,15 @@ def verdict_node(state: EvaluationState) -> EvaluationState:
     else:
         verdict = "NO-GO"
 
-    evidence_sources = _build_evidence_sources(state.get("retrieved_chunks", []))
+    dimension_evidence_map = (
+        state.get("dimension_evidence_map")
+        if isinstance(state.get("dimension_evidence_map"), dict)
+        else {}
+    )
+    evidence_sources = _build_evidence_sources(
+        state.get("retrieved_chunks", []),
+        dimension_evidence_map=dimension_evidence_map,
+    )
     web_count = len([source for source in evidence_sources if source.get("collection") == "web"])
     internal_count = len(evidence_sources) - web_count
     evidence_mix = {
